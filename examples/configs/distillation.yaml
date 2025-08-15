@@ -1,0 +1,199 @@
+# On-Policy蒸馏算法配置文件
+
+# 蒸馏算法配置
+distillation:
+  lambda: 0.5  # 学生自生成数据占比 [0,1]，0.5表示50% on-policy数据
+  kl_type: "forward"  # KL散度类型: "forward", "reverse", "mixed"
+  mixed_kl_weight: 0.5  # 混合KL时的权重系数（当kl_type为"mixed"时使用）
+  max_length: 2048  # 生成序列最大长度，默认最大生成2048个新token
+  temperature: 0.1  # 采样温度，控制生成随机性
+  decoding_method: "greedy"  # 解码方式: "greedy", "top_k", "top_p"
+  max_num_steps: 100  # 最大训练步数
+  val_period: 10  # 验证频率，每多少步验证一次
+  val_batches: 8  # 验证批次数量
+  val_global_batch_size: 32  # 验证全局批次大小
+  val_micro_batch_size: 1  # 验证微批次大小
+  val_at_start: true  # 是否在开始时验证
+  seed: 42  # 随机种子
+
+# 检查点配置
+checkpointing:
+  enabled: true
+  checkpoint_dir: "results/distillation"
+  metric_name: "val_loss"  # 保存检查点的指标名称
+  higher_is_better: false  # 指标是否越高越好
+  keep_top_k: 3  # 保留前k个最佳检查点
+  save_period: 10  # 保存周期
+  checkpoint_must_save_by: null
+
+# 学生模型配置（可训练）
+student_policy:
+  model_name: "Qwen/Qwen2.5-1.5B-Instruct"  # 学生模型名称
+  tokenizer:
+    name: ${student_policy.model_name}  # 分词器名称
+    chat_template: "{% for message in messages %}{%- if message['role'] == 'system'  %}{{'Context: ' + message['content'].strip()}}{%- elif message['role'] == 'user'  %}{{' Question: ' + message['content'].strip() + ' Answer:'}}{%- elif message['role'] == 'assistant'  %}{{' ' + message['content'].strip()}}{%- endif %}{% endfor %}"
+  train_global_batch_size: 32
+  train_micro_batch_size: 1
+  max_total_sequence_length: 2048
+  precision: "bfloat16"
+  
+  # 学习率调度器配置
+  scheduler:
+    - name: "torch.optim.lr_scheduler.LinearLR"
+      kwargs:
+        start_factor: 0.1
+        end_factor: 1.0
+        total_iters: 50
+    - name: "torch.optim.lr_scheduler.ConstantLR"
+      kwargs:
+        factor: 1.0
+        total_iters: 10000000000
+    - milestones: [50]
+
+  dtensor_cfg:
+    enabled: true
+    cpu_offload: False
+    sequence_parallel: false
+    activation_checkpointing: false
+    tensor_parallel_size: 1
+    context_parallel_size: 1
+    custom_parallel_plan: null
+
+  dynamic_batching:
+    enabled: false
+
+  sequence_packing:
+    enabled: False
+    train_mb_tokens: ${mul:${student_policy.max_total_sequence_length}, ${student_policy.train_micro_batch_size}}
+    algorithm: "modified_first_fit_decreasing"
+    sequence_length_round: 64
+
+  make_sequence_length_divisible_by: ${student_policy.dtensor_cfg.tensor_parallel_size}
+  max_grad_norm: 1.0
+
+  optimizer:
+    name: "torch.optim.AdamW"
+    kwargs:
+      lr: 5.0e-6
+      weight_decay: 0.1
+      betas: [0.9, 0.98]
+      eps: 1e-5
+      foreach: False
+      fused: False
+    
+  megatron_cfg:
+    enabled: false
+    empty_unused_memory_level: 1
+    activation_checkpointing: false
+    tensor_model_parallel_size: 1
+    expert_tensor_model_parallel_size: 1
+    expert_model_parallel_size: 1
+    pipeline_model_parallel_size: 1
+    context_parallel_size: 1
+    pipeline_dtype: ${student_policy.precision}
+    num_layers_in_first_pipeline_stage: null
+    num_layers_in_last_pipeline_stage: null
+    sequence_parallel: false
+    freeze_moe_router: false
+    moe_router_dtype: null
+    moe_router_load_balancing_type: "aux_loss"
+    moe_router_bias_update_rate: 1e-3
+    apply_rope_fusion: True
+
+    optimizer:
+      optimizer: "adam"
+      lr: 5.0e-6
+      min_lr: 4.9999e-6
+      weight_decay: 0.1
+      bf16: false
+      fp16: false
+      params_dtype: "float32"
+      adam_beta1: 0.9
+      adam_beta2: 0.98
+      adam_eps: 1e-5
+
+  # 生成配置
+  generation:
+    backend: "megatron"  # 可选: "vllm" 或 "megatron"，默认使用megatron
+    colocated:
+      enabled: false  # 默认禁用，避免配置复杂性
+    max_length: 512
+    temperature: 0.1
+    top_p: 0.9
+    top_k: 50
+
+# 教师模型配置（固定参数）
+teacher_policy:
+  model_name: "Qwen/Qwen2.5-32B-Instruct"  # 教师模型名称
+  tokenizer:
+    name: ${teacher_policy.model_name}  # 分词器名称
+    chat_template: "{% for message in messages %}{%- if message['role'] == 'system'  %}{{'Context: ' + message['content'].strip()}}{%- elif message['role'] == 'user'  %}{{' Question: ' + message['content'].strip() + ' Answer:'}}{%- elif message['role'] == 'assistant'  %}{{' ' + message['content'].strip()}}{%- endif %}{% endfor %}"
+  
+  # 教师模型不参与训练，只用于推理
+  train_global_batch_size: 32
+  train_micro_batch_size: 1
+  max_total_sequence_length: 2048
+  precision: "bfloat16"
+
+  dtensor_cfg:
+    enabled: true
+    cpu_offload: False
+    sequence_parallel: false
+    activation_checkpointing: false
+    tensor_parallel_size: 1
+    context_parallel_size: 1
+    custom_parallel_plan: null
+
+  megatron_cfg:
+    enabled: false
+    empty_unused_memory_level: 1
+    activation_checkpointing: false
+    tensor_model_parallel_size: 1
+    expert_tensor_model_parallel_size: 1
+    expert_model_parallel_size: 1
+    pipeline_model_parallel_size: 1
+    context_parallel_size: 1
+    pipeline_dtype: ${teacher_policy.precision}
+    num_layers_in_first_pipeline_stage: null
+    num_layers_in_last_pipeline_stage: null
+    sequence_parallel: false
+    freeze_moe_router: false
+    moe_router_dtype: null
+    moe_router_load_balancing_type: "aux_loss"
+    moe_router_bias_update_rate: 1e-3
+    apply_rope_fusion: True
+
+# 数据配置
+data:
+  dataset_name: "math_cl"  # 数据集名称
+  seed: 42  # 随机种子
+  max_train_samples: null  # 最大训练样本数量，null表示使用全部数据
+  max_val_samples: null  # 最大验证样本数量，null表示使用全部数据
+  prompt_template: "math_distillation"  # 使用的prompt模板名称
+  max_input_seq_length: 2048  # 最大输入序列长度
+  add_bos: true  # 是否添加BOS token
+  add_eos: true  # 是否添加EOS token
+  add_generation_prompt: false  # 是否添加生成提示
+
+# 超时配置
+timeout:
+  max_time: null  # 最大训练时间（秒），null表示无限制
+  max_idle_time: 300  # 最大空闲时间（秒）
+
+# 集群配置
+cluster:
+  enabled: false
+  num_nodes: 1
+  gpus_per_node: 8  # 修正：应该是 gpus_per_node 而不是 num_gpus_per_node
+  num_cpus_per_node: 32
+  ray_cluster_config: null
+
+# 日志配置
+logger:
+  enabled: true
+  log_dir: "logs/distillation"
+  log_level: "INFO"
+  tensorboard: true
+  wandb: false
+  wandb_project: "nemo-distillation"
+  wandb_entity: null

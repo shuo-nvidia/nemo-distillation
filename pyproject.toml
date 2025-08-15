@@ -1,0 +1,225 @@
+[build-system]
+requires = ["setuptools>=42", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["nemo_rl"]
+
+[tool.setuptools.dynamic]
+version = {attr = "nemo_rl.__version__"}  # any module attribute compatible with ast.literal_eval
+readme = {file = "README.md", content-type = "text/markdown"}
+
+[project]
+name = "nemo-rl"
+dynamic = [
+    "version",
+    "readme",
+]
+description = "NeMo RL: A Scalable and Efficient Post-Training Library for Models Ranging from 1 GPU to 1000s, and from Tiny to >100B Parameters"
+requires-python = ">=3.12"
+license = {text = "Apache 2.0"}
+dependencies = [
+    "setuptools",
+    "ninja",  # for flash-attn parallel build
+    "torch==2.7.1",
+    "triton",
+    "colored==2.2.3",
+    "ray[default]==2.46.0",
+    # transformers==4.54.0/4.54.1 both fail on rm models
+    # Remove this once https://github.com/NVIDIA-NeMo/RL/issues/811 resolved
+    "transformers>=4.51.0,<4.54.0",
+    "wandb",
+    "numpy",
+    "datasets>=4.0.0",
+    "rich",
+    "math-verify",
+    "accelerate>=0.26",
+    "tensorboard",
+    "omegaconf",
+    "torchdata",
+    "nvidia-ml-py",
+    "hydra-core",
+    "tiktoken",
+    "blobfile",
+    "debugpy",
+    "nvtx",
+    "matplotlib",
+    "plotly",
+    "mlflow",
+]
+
+[project.optional-dependencies]
+# Currently unused, but after https://github.com/NVIDIA-NeMo/RL/issues/501 is resolved, we should use this for the "BASE" PYEXECUTABLE
+automodel = [
+    # Flash-attn version should be selected to satisfy both TE + vLLM requirements (xformers in particular)
+    # https://github.com/NVIDIA/TransformerEngine/blob/v2.3/transformer_engine/pytorch/attention/dot_product_attention/utils.py#L108
+    # https://github.com/facebookresearch/xformers/blob/8354497deb2c04c67fbb2e2ad911e86530da0e90/xformers/ops/fmha/flash.py#L76
+    "flash-attn==2.7.4.post1",
+    "mamba-ssm",
+    "causal-conv1d",
+]
+vllm = [
+    "vllm==0.10.0",
+    # Remove this once https://github.com/NVIDIA-NeMo/RL/issues/501 resolved
+    "flash-attn==2.7.4.post1",
+    # Remove this once https://github.com/NVIDIA-NeMo/RL/issues/501 resolved
+    "mamba-ssm",
+    # Remove this once https://github.com/NVIDIA-NeMo/RL/issues/501 resolved
+    "causal-conv1d",
+]
+mcore = [
+    # also need cudnn (https://developer.nvidia.com/cudnn-downloads?target_os=Linux&target_arch=x86_64&Distribution=Ubuntu&target_version=20.04&target_type=deb_network)
+    # wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2004/x86_64/cuda-keyring_1.1-1_all.deb
+    # sudo dpkg -i cuda-keyring_1.1-1_all.deb
+    # sudo apt-get update
+    # sudo apt-get install cudnn-cuda-12
+    "transformer-engine[pytorch]==2.3.0",
+    "megatron-core",
+    "nemo-tron",
+    # Remove this once https://github.com/NVIDIA-NeMo/RL/issues/501 resolved
+    "vllm==0.10.0",
+    # Flash-attn version should be selected to satisfy both TE + vLLM requirements (xformers in particular)
+    # https://github.com/NVIDIA/TransformerEngine/blob/v2.3/transformer_engine/pytorch/attention/dot_product_attention/utils.py#L108
+    # https://github.com/facebookresearch/xformers/blob/8354497deb2c04c67fbb2e2ad911e86530da0e90/xformers/ops/fmha/flash.py#L76
+    "flash-attn==2.7.4.post1",
+]
+
+[dependency-groups]
+
+# This is a default group so that we install these even with bare `uv sync`
+build = [
+    # Build requirement for TE
+    "torch==2.7.1",
+    # Build requirement for TE
+    "setuptools",
+    "packaging",
+    "einops",
+    # Build requirement for nemo_run
+    "hatchling",
+    # Build requirement for mcore
+    "pybind11",
+    # Build requirement for flash-attn
+    "psutil",
+]
+docs = [
+    "sphinx",
+    "sphinx-autobuild",  # For live doc serving while editing docs
+    "sphinx-autodoc2",  # For documenting Python API
+    "sphinx-copybutton",  # Adds a copy button for code blocks
+    "myst_parser",  # For our markdown docs
+    "nvidia-sphinx-theme",  # Our NVIDIA theme
+]
+dev = [
+    "pre-commit==3.6.0",
+    "ruff==0.9.9",
+    "types-PyYAML",
+    "types-requests",
+    "pyrefly==0.24.2",
+]
+test = [
+    "pytest>=7.0.0",
+    "pytest-timeout",
+    "pytest-cov",
+    "pytest-asyncio",
+]
+
+[tool.uv.sources]
+megatron-core = { workspace = true }
+nemo-tron = { workspace = true }
+# The NeMo Run source to be used by nemo-tron
+nemo_run = { git = "https://github.com/NVIDIA-NeMo/Run", rev = "414f0077c648fde2c71bb1186e97ccbf96d6844c" }
+# torch/torchvision/triton all come from the torch index in order to pick up aarch64 wheels
+torch = [
+  { index = "pytorch-cu128" },
+]
+torchvision = [
+  { index = "pytorch-cu128" },
+]
+triton = [
+  { index = "pytorch-cu128" },
+]
+causal-conv1d = { git = "https://github.com/Dao-AILab/causal-conv1d", tag = "v1.5.0.post8" }
+mamba-ssm = { git = "https://github.com/state-spaces/mamba.git", rev = "2e16fc3062cdcd4ebef27a9aa4442676e1c7edf4" }
+
+[tool.uv.workspace]
+members = [
+    "3rdparty/Megatron-LM-workspace",
+    "3rdparty/NeMo-workspace",
+]
+
+[[tool.uv.index]]
+name = "pytorch-cu128"
+url = "https://download.pytorch.org/whl/cu128"
+explicit = true
+
+[tool.uv]
+no-build-isolation-package = ["transformer-engine-torch", "transformer-engine", "flash-attn", "mamba-ssm", "causal-conv1d"]
+# Always apply the build group since dependencies like TE/mcore/nemo-run require build dependencies
+# and this lets us assume they are implicitly installed with a simply `uv sync`. Ideally, we'd
+# avoid including these in the default dependency set, but for now it's required.
+default-groups = ["dev", "build"]
+# Users may use different link-modes depending on their scenario:
+#  --link-mode=hardlink (default on linux; may get warnings about switching to --link-mode copy if uv cache and venv on different file-systems)
+#  --link-mode=copy (slower but more reliable; supresses warning)
+#  --link-mode=symlink (fastest option when uv cache and venv on different file-system; caveat: venv is brittle since it depends on the environment/container)
+link-mode = "copy"
+
+# Needed when building from source
+[[tool.uv.dependency-metadata]]
+name = "flash-attn"
+requires-dist = ["torch", "einops", "setuptools", "psutil", "ninja"]
+
+[tool.black]
+line-length = 120
+include = '\.pyi?$'
+exclude = '''
+/(
+    \.git
+  | \.venv
+  | build
+)/
+'''
+
+[tool.pytest.ini_options]
+addopts = "--durations=15 -s -rA -x"
+testpaths = ["tests"]
+python_files = "test_*.py"
+markers = [
+    "mcore: marks tests that require the mcore extra",
+    "hf_gated: marks tests that require HuggingFace token access for gated models",
+]
+
+[tool.pyrefly]
+project-includes = ["**/*"]
+project-excludes = ["**/*venv/**/*"]
+
+[tool.coverage.run]
+concurrency = ["thread", "multiprocessing"]
+omit = ["/tmp/*"]
+
+[tool.coverage.paths]
+source = ["nemo_rl/", "/opt/nemo-rl/nemo_rl/"]
+
+[tool.ruff.lint]
+# Enable all `pydocstyle` rules, limiting to those that adhere to the
+# Google convention via `convention = "google"`, below.
+select = ["D", "F"]
+
+# - On top of the Google convention, disable `D417`, which requires
+#   documentation for every function parameter.
+# - F841: local variable assigned but never used (exluced to favor readability)
+# TODO: Remove D10 once we are about to release to get all the docstrings written
+ignore = ["D417", "D10", "F841"]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+# Section to exclude errors for different file types
+[tool.ruff.per-file-ignores]
+# Ignore all directories named `tests`.
+"tests/**" = ["D"]
+# Ignore all files that end in `_test.py`.
+"*_test.py" = ["D"]
+# Ignore F401 (import but unused) in __init__.py
+"__init__.py" = ["F401"]
+

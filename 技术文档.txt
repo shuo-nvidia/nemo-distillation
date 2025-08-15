@@ -1,0 +1,255 @@
+这个文件夹内是用于后训练的NeMo-RL框架，我想请您帮我在其基础上实现On-policy蒸馏功能。
+在您书写代码时请不要修改已有代码，只添加新的文件或在已有文件中添加新的代码。
+请确保您写的代码有明确的备注，并尽量参考已有代码的工作流程以及书写规范。
+
+1.以下是on policy方法的介绍以及需求描述：
+【# 基于NeMo-RL框架的On-Policy蒸馏技术说明
+## 1. 技术总览
+该技术基于NeMo-RL框架实现**On-Policy知识蒸馏**，通过让学生模型在训练过程中动态生成自监督数据（on-policy数据），结合固定数据集混合训练，解决传统蒸馏中“训练分布与推理分布不匹配”的问题，最终实现小模型（学生）对大模型（教师）知识的高效迁移，在保证推理效率的同时保留核心性能。
+
+## 2. 核心原理
+1. **On-Policy动态数据生成**  
+   训练过程中，学生模型在每个训练步骤实时生成输出序列，生成的数据与当前学生模型的参数状态强关联，确保训练数据分布与推理时学生自主生成的序列分布一致。
+
+2. **混合数据训练策略**  
+   训练数据由两部分构成，通过超参数λ控制比例，应该写于配置文件中：  
+   - 固定数据：来自原始任务数据集（如真实标签、教师预生成序列）；  
+   - 学生自生成数据：学生模型对输入样本实时生成的输出序列。  
+   每个训练步骤随机选择数据来源（以λ概率选择学生生成数据，1-λ概率选择固定数据）。
+
+3. **损失函数设计**  
+   采用KL散度衡量教师与学生在token级别概率分布的差异，支持两种模式：  
+   - 前向KL（Forward KL）：学生分布逼近教师分布，注重覆盖教师所有可能输出；  衡量教师模型分布 P 与学生模型分布 Q 之间的差异，从教师分布视角计算信息损失：\(D_{KL}(P \| Q) = \sum_{c \in \mathcal{C}} P(c) \log \frac{P(c)}{Q(c)}\)
+   - 反向KL（Reverse KL）：学生分布聚焦教师高概率输出，注重核心模式学习。 衡量学生模型分布 Q 与教师模型分布 P 之间的差异，从学生分布视角计算信息损失：\(D_{KL}(Q \| P) = \sum_{c \in \mathcal{C}} Q(c) \log \frac{Q(c)}{P(c)}\)
+
+## 3. 输入与输出
+### 3.1 输入
+- 教师模型：NeMo-RL框架兼容的预训练大模型（比如Qwen/Qwen2.5-32B-Instruct），参数固定，作为知识提供方；  
+- 学生模型：NeMo-RL框架定义的轻量级模型（比如Qwen/Qwen2.5-1.5B-Instruct），需与教师模型结构兼容（tokenizer一致）；  
+- 基础数据集：原始任务数据（格式为hugging Face的聊天模板，可见下述“数据说明”），用于提供固定训练数据；  
+- 超参数配置：请参考其他yaml文件，结合on policy任务本身进行配置。
+
+### 3.2 输出
+- 蒸馏后的学生模型；  
+- 训练日志：包含损失曲线、验证集性能指标等；  
+- 中间 checkpoint：训练过程中保存的学生模型快照，支持断点续训。
+
+## 4. 配置文件（Config）参数说明
+配置文件采用YAML格式，核心参数请参照项目中其他的yaml文件，如examples/configs/sft.yaml。
+
+### 4.1 模型相关
+- `teacher_model_path`: 教师模型名称或路径；  
+- `student_model_path`: 学生模型名称或路径；  
+
+### 4.2 蒸馏策略（需写在配置文件中）
+- `lambda`: 学生自生成数据占比（范围[0,1]，如0.5表示50% on-policy数据）；  
+- `kl_type`: KL散度类型（可选`forward`或`reverse`或以权重系数混合`mixed`）；  
+- `generate_strategy`: 学生生成参数，包括：  
+  - `max_length`: 生成序列最大长度, 默认最大生成2048个新token；  
+  - `temperature`: 采样温度（控制生成随机性，默认为0.1）；  
+  - `decoding_method`: 解码方式（如`greedy`、`top_k`）。
+
+### 4.3 训练参数有但不限于
+- `batch_size`: 训练批次大小；  
+- `learning_rate`: 学生模型学习率；  
+- `num_epochs`: 训练总轮数；  
+- `gradient_accumulation_steps`: 梯度累积步数；  
+- `weight_decay`: 权重衰减系数（用于正则化）；  
+- `val_freq`: 验证频率（每多少step验证一次）。
+】
+
+2. 数据说明：
+【我们默认数据会有Hugging Face chat datasets输入格式。
+即数据集中的每个示例都应为一个包含messages键的字典。messages应为一个字典列表，每个字典都包含一个role和content键。role通常具有以下值之一：system、user和assistant。
+例如：{
+    "messages": [
+        {
+            "role": "system",
+            "content": "This is a helpful system message."
+        },
+        {
+            "role": "user",
+            "content": "This is a user's question"
+        },
+        {
+            "role": "assistant",
+            "content": "This is the assistant's response."
+        }
+    ]
+}
+此外，现有示例yaml文件中的chat_template字段也会给出额外说明。】
+
+3. 伪代码与说明：
+【以下是关于整体训练流程的伪代码。
+for step in range(num_steps):
+    # 1. Sample prompt
+    prompts = sample_prompts(batch_size)
+
+    # 2. Student rollout（Inferencing engine， return the token sequences）
+    with torch.no_grad():
+        seqs = student.generate(
+            prompts,
+        )      # seqs: [B, L_total], L_total = prompt_len + response_len #请参考grpo文件中使用vllm生成的做法
+
+    # 3. Student perform forward to get the logits
+    full_logits = student(seqs).logits  # [B, L_total, V]
+
+    # 4. teacher perform forward to get the logits 
+    with torch.no_grad():
+        teacher_logits = teacher(seqs).logits  # [B, L_total, V]
+
+    # 5. Use softmax(logits). 
+    kl = kl_div(softmax(full_logits), softmax(teacher_logits), mask=(seqs != pad_token_id))
+    loss = kl.mean()
+
+    # 6. Backward and update student model
+    loss.backward()
+    optimizer.step(); 
+    optimizer.zero_grad()
+
+以下是Implementation design breakdown
+1. Core architecture components
+  * Distillation Algorithm Class (OnPolicyDistillation)
+    * Similar structure to GRPO algorithm in nemo_rl/algorithms/grpo.py
+    * Manages the overall training loop and orchestrates student-teacher interaction
+    * Leverages existing GRPO infrastructure for distributed training
+  * Distillation Loss Function (DistillationLossFn)
+    * Implements KL divergence loss between student and teacher logits
+    * Similar to ClippedPGLossFn in nemo_rl/algorithms/loss_functions.py
+    * Supports token-level masking to exclude prompt tokens from loss calculation
+  * Dual Policy Management
+    * Student Policy: Trainable, inherits from existing Policy class
+    * Teacher Policy: Fixed/frozen, separate instance or shared infrastructure
+    * Both can use the same underlying worker architecture (DTensor/Megatron)
+2. Program flow
+  * Training loop structure (leveraging GRPO pattern)
+
+# Main training function signature (similar to grpo_train)
+def distillation_train(
+    student_policy: ColocatablePolicyInterface,
+    teacher_policy: ColocatablePolicyInterface,
+    student_generation: Optional[GenerationInterface],
+    dataloader: StatefulDataLoader,
+    val_dataloader: Optional[StatefulDataLoader],
+    tokenizer: TokenizerType,
+    loss_fn: DistillationLossFunction,
+    logger: Logger,
+    checkpointer: CheckpointManager,
+    distillation_save_state: DistillationSaveState,
+    master_config: MasterConfig,
+) -> None:
+
+3. def distillation_train(
+    student_policy: ColocatablePolicyInterface,
+    teacher_policy: ColocatablePolicyInterface,
+    student_generation: Optional[GenerationInterface],
+    # ... other params
+) -> None:
+    
+    # Similar to GRPO pattern
+    NEED_REFIT = True
+    if student_generation is None:
+        student_generation = student_policy  # Megatron backend
+        NEED_REFIT = False
+    STUDENT_GENERATION_STALE = True  # Track if student generation needs refit
+    
+    for batch in dataloader:
+        with timer.time("total_step_time"):
+            
+            # 1. Prepare batch 
+            with timer.time("data_processing"):
+                batched_flat, input_lengths = batched_message_log_to_flat_message(...)
+                input_ids = batched_flat["token_ids"]
+            
+            # 2. **REFIT STUDENT GENERATION WEIGHTS** (if needed)
+            with timer.time("prepare_for_generation"):
+                if NEED_REFIT and STUDENT_GENERATION_STALE:
+                    print("▶ Refitting student generation with latest weights...")
+                    refit_student_generation(
+                        student_policy, student_generation, colocated_inference
+                    )
+                    STUDENT_GENERATION_STALE = False
+                else:
+                    student_generation.prepare_for_generation()
+            
+            # 3. Generate responses using UPDATED student weights
+            with timer.time("generation"):
+                print("▶ Generating responses with updated student...")
+                generation_outputs = student_generation.generate(generation_data, greedy=False)
+                full_sequences = generation_outputs["output_ids"]
+                student_generation.finish_generation()
+            
+            # 4. Forward passes for logits 
+            with timer.time("logits_computation"):
+                # Both models forward pass on same sequences
+                student_logits = student_policy.get_forward_logits(full_sequences)
+                with torch.no_grad():
+                    teacher_logits = teacher_policy.get_forwrad_logits(full_sequences)
+            
+            # 5. Loss calculation and train student (same as before)
+
+            train_data = BatchedDataDict[DistillationLossDataDict]({
+               "input_ids": sequences,
+               "student_logits": student_logits,
+               "teacher_logits": teacher_logits,
+               # Mask input tokens
+               "token_mask": create_response_mask(sequences, prompt_lengths),
+               # ... other fields
+            })
+   
+            with timer.time("training"):
+                student_policy.prepare_for_training()
+                STUDENT_GENERATION_STALE = True  # *** MARK AS STALE AFTER TRAINING ***
+                train_results = student_policy.train(train_data, loss_fn)
+    】
+
+4. 您需要做的事：
+【以下是一些您可能需要创建或在其中增加代码的文件。在您书写代码时，请随时参考同目录下的文件名中含sft与grpo字样的其他代码文件的做法。
+以及请随时确保您可以尽可能复用已有代码模块中的class或function。
+docs/guides
+├── on-policy-distillation.md              # Design and e2e example
+
+nemo_rl/algorithms/
+├── distillation.py              # Main implementation
+├── loss_functions.py            # Add DistillationLossFn
+
+examples/
+├── run_distillation.py          # Example runner
+├── configs/distillation.yaml    # Config template
+├── configs/distillation_math.yaml # a test case on the math dataset, please refer to the "测试用例"
+
+tests/
+├── functional/distillation.sh   # Integration tests
+├── unit/algorithms/test_distillation.py】
+
+5.测试用例：
+【在您写完这一切后，我希望可以运行functional/distillation.sh或者run_distillation.py脚本进行测试。
+在测试中，我要求以Qwen/Qwen2.5-32B-Instruct作为教师模型，Qwen/Qwen2.5-1.5B-Instruct作为学生模型进行蒸馏。
+所用math数据集为“pe-nlp/math-cl”，您可以使用“datasets.load_dataset('pe-nlp/math-cl', split='train', trust_remote_code=True)” 这种方式加载它。
+该数据集中每个样本含有“problem”和“ground_truth_answer”两个字段。为了使其能够适配于我们的数据输入规范，您可以创建一个临时的数据处理文件，并将其先规范化为我们所需的hugging face数据模板。
+
+同时，我希望使用如下prompt，该prompt应该写于examples/prompts中以进行处理，您可以新建一个临时文件:
+"A conversation between User and Assistant. The User asks a question, and the Assistant solves it. "
+    "The Assistant first thinks about the reasoning process in the mind and then provides the User with the answer. "
+    "The reasoning process and answer are enclosed within <think> </think> and <answer> </answer> tags, respectively, i.e., <think> reasoning process here </think> <answer> answer here </answer>. "
+    "User: You must put your answer inside <answer> </answer> tags, i.e., <answer> answer here </answer>. "
+    "And your final answer will be extracted automatically by the \\boxed{{}} tag. {prompt}\n"
+    "Assistant: <think>"
+】
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
