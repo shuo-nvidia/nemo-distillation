@@ -1824,8 +1824,8 @@ def distillation_train(
                                     # 尝试调用worker的get_logprobs方法
                                     # print(f"  🔍 Calling worker.get_logprobs directly...")
                                     pass
-                                    worker_result = first_worker.get_logprobs.remote(train_data_for_logprobs)
-                                    worker_result = ray.get(worker_result)
+                                    # 直接调用方法，不使用.remote()
+                                    worker_result = first_worker.get_logprobs(train_data_for_logprobs)
                                     # print(f"  🔍 Worker get_logprobs successful")
                                     pass
                                     
@@ -1908,11 +1908,7 @@ def distillation_train(
                             total_tokens = token_mask.numel()
                             response_tokens = token_mask.sum().item()
                             prompt_tokens = total_tokens - response_tokens
-                            print(f"  🔍 Token mask analysis:")
-                            print(f"    - Total tokens: {total_tokens}")
-                            print(f"    - Response tokens (loss calculation): {response_tokens}")
-                            print(f"    - Prompt tokens (no loss): {prompt_tokens}")
-                            print(f"    - Response ratio: {response_tokens/total_tokens*100:.1f}%")
+
                         else:
                             # 如果没有token_mask，创建一个默认的（全1，但这不是理想情况）
                             token_mask = torch.ones_like(train_data["input_ids"], dtype=torch.bool)
@@ -2067,21 +2063,14 @@ def distillation_train(
                 # print(f"  🔍 Creating distillation-safe training data...")
                 pass
                 
-                # 方法1：将logits转换为worker期望的格式
-                # 由于worker期望sequence维度在dim 1，我们需要重新排列logits
+
                 distillation_safe_data = {}
                 
                 for key, value in train_data.items():
                     if key in ["teacher_logits", "student_logits"]:
-                        # 对于logits，我们需要确保它们不会被worker误解
-                        # 方法：将logits转换为worker期望的格式，或者暂时移除它们
-                        # print(f"  🔍 Processing {key} for distillation safety...")
-                        pass
                         
                         if len(value.shape) == 3:
-                            # 如果logits形状正确，我们暂时将它们存储为其他格式
-                            # 方法：将logits转换为worker不会检查的格式
-                            # 我们可以将它们转换为1D张量，然后在loss function中恢复
+
                             batch_size, seq_len, vocab_size = value.shape
                             flattened_logits = value.view(batch_size * seq_len, vocab_size)
                             
@@ -2100,18 +2089,6 @@ def distillation_train(
                     else:
                         # 对于其他字段，直接复制
                         distillation_safe_data[key] = value
-                
-                # 验证安全数据
-                # print(f"  🔍 Distillation-safe data keys: {list(distillation_safe_data.keys())}")
-                pass
-                for key, value in distillation_safe_data.items():
-                    if torch.is_tensor(value):
-                        # print(f"  🔍   {key}: {value.shape}")
-                        pass
-                
-                # 关键修复：检查所有字段的batch size是否一致
-                # print(f"  🔍 Checking batch size consistency across all fields...")
-                pass
                 
                 # 添加调试信息：显示所有字段的类型
                 print(f"  🔍 Distillation safe data fields:")
@@ -2154,31 +2131,14 @@ def distillation_train(
                 unique_batch_sizes = set(batch_sizes.values())
                 if len(unique_batch_sizes) != 1:
                     print(f"  ❌ Critical error: Batch sizes are not consistent!")
-                    print(f"  🔍 Unique batch sizes: {unique_batch_sizes}")
-                    # print(f"  🔍 This will cause shard_by_batch_size to fail!")
-                    pass
                     
-                    # 关键修复：只修复标准训练字段，保持蒸馏字段不变
-                    # print(f"  🔍 Attempting to fix batch size inconsistencies...")
-                    pass
-                    
-                    # 过滤掉蒸馏相关的特殊字段，只考虑标准训练字段
                     standard_fields = ["input_ids", "input_lengths", "advantages", "generation_logprobs", "token_mask", "sample_mask"]
                     distillation_fields = [k for k in batch_sizes.keys() if k.startswith("distillation_")]
-                    
-                    # print(f"  🔍 Standard fields: {standard_fields}")
-                    pass
-                    # print(f"  🔍 Distillation fields: {distillation_fields}")
-                    pass
                     
                     # 只检查标准字段的batch size一致性
                     standard_batch_sizes = {k: v for k, v in batch_sizes.items() if k in standard_fields}
                     distillation_batch_sizes = {k: v for k, v in batch_sizes.items() if k in distillation_fields}
-                    
-                    # print(f"  🔍 Standard field batch sizes: {standard_batch_sizes}")
-                    pass
-                    # print(f"  🔍 Distillation field batch sizes: {distillation_batch_sizes}")
-                    pass
+
                     
                     # 检查标准字段的batch size是否一致
                     unique_standard_batch_sizes = set(standard_batch_sizes.values())
@@ -2323,12 +2283,6 @@ def distillation_train(
                     pass
                     raise ValueError("train_data must be a proper BatchedDataDict with shard_by_batch_size method")
                 
-                print(f"  ✅ train_data has required methods for training")
-                
-                # 关键修复：在传递给train()之前，创建只包含标准训练字段的干净数据
-                # print(f"  🔍 Creating clean training data without distillation fields...")
-                pass
-                
                 # 只保留标准训练字段
                 standard_fields = ["input_ids", "input_lengths", "advantages", "generation_logprobs", "token_mask", "sample_mask"]
                 clean_training_data = {}
@@ -2369,55 +2323,22 @@ def distillation_train(
                 
                 # 创建最终的干净BatchedDataDict
                 final_train_data = BatchedDataDict[DistillationLossDataDict](clean_training_data)
-                # print(f"  🔍 Final clean train_data type: {type(final_train_data)}")
-                pass
-                # print(f"  🔍 Final clean train_data keys: {list(final_train_data.keys())}")
-                pass
-                
-                # 关键修复：将蒸馏数据存储为属性，而不是字典键值对
-                # print(f"  🔍 Storing distillation data as attributes...")
-                pass
+
                 final_train_data.distillation_teacher_logits = distillation_safe_data.get("distillation_teacher_logits_flattened")
                 final_train_data.distillation_teacher_logits_shape = distillation_safe_data.get("distillation_teacher_logits_flattened_shape")
                 final_train_data.distillation_student_logits = distillation_safe_data.get("distillation_student_logits_flattened")
                 final_train_data.distillation_student_logits_shape = distillation_safe_data.get("distillation_student_logits_flattened_shape")
                 
-                # print(f"  🔍 Distillation data stored as attributes:")
-                pass
-                #print(f"  🔍   distillation_teacher_logits: {final_train_data.distillation_teacher_logits.shape if final_train_data.distillation_teacher_logits is not None else 'None'}")
-                #print(f"  🔍   distillation_teacher_logits_shape: {final_train_data.distillation_teacher_logits_shape.shape if final_train_data.distillation_teacher_logits_shape is not None else 'None'}")
-                #print(f"  🔍   distillation_student_logits: {final_train_data.distillation_student_logits.shape if final_train_data.distillation_student_logits is not None else 'None'}")
-                #print(f"  🔍   distillation_student_logits_shape: {final_train_data.distillation_student_logits_shape.shape if final_train_data.distillation_student_logits_shape is not None else 'None'}")
-                
-                # 关键修复：不将蒸馏数据存储为字典键值对，只使用属性存储
-                # 这样可以避免在shard_by_batch_size时出现问题
-                # print(f"  🔍 Distillation data stored as attributes only (no dictionary keys)")
-                pass
-                
-                # 关键修复：验证final_train_data只包含标准训练字段，不包含蒸馏字段
-                # print(f"  🔍 Verifying final_train_data only contains standard fields...")
-                pass
                 final_keys = list(final_train_data.keys())
-                # print(f"  🔍 Final train_data keys: {final_keys}")
-                pass
+
                 
                 # 检查是否包含蒸馏字段
                 distillation_keys = [k for k in final_keys if k.startswith(('distillation_', '_distillation_'))]
                 if distillation_keys:
                     print(f"  ⚠️ Warning: final_train_data still contains distillation fields: {distillation_keys}")
-                    # print(f"  🔍 This will cause shard_by_batch_size to fail!")
-                    pass
-                    
-                    # 移除蒸馏字段，只保留标准字段
-                    # print(f"  🔍 Removing distillation fields to fix the issue...")
-                    pass
                     for key in distillation_keys:
                         del final_train_data[key]
-                        # print(f"  🔍 Removed: {key}")
-                        pass
-                    
-                    # print(f"  🔍 Final train_data keys after cleanup: {list(final_train_data.keys())}")
-                    pass
+
                 else:
                     print(f"  ✅ final_train_data only contains standard fields")
                 
