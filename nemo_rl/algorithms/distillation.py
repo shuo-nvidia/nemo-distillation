@@ -478,9 +478,10 @@ def validate(
                         input_batch=val_batch,
                         tokenizer=tokenizer,
                         task_to_env={},  # 蒸馏任务不需要环境交互
-                        max_seq_len=master_config["policy"]["max_total_sequence_length"],
+                        max_seq_len=min(max_length, master_config["policy"]["max_total_sequence_length"]),  # 使用配置的max_length
                         max_rollout_turns=1,  # 蒸馏只需要单轮生成
-                        greedy=True,  # 蒸馏使用确定性生成
+                        greedy=(decoding_method == "greedy"),  # 根据decoding_method决定是否greedy
+                        temperature=temperature,  # 传递配置的temperature
                     )
                     
                     # 计算验证loss：使用与训练相同的蒸馏损失计算
@@ -500,6 +501,10 @@ def validate(
                             "student_logits": val_student_logits,
                             # 对于验证，我们可能没有teacher_logits，使用占位符
                             "teacher_logits": torch.randn_like(val_student_logits) * 0.1,
+                            # 传递蒸馏参数
+                            "kl_type": kl_type,
+                            "lambda_": lambda_,
+                            "mixed_kl_weight": mixed_kl_weight,
                         }
                         
                         # 计算验证loss
@@ -540,7 +545,11 @@ def validate(
                     val_data = {
                         "input_ids": val_input_ids,
                         "student_logits": val_student_logits,
-                        "teacher_logits": torch.randn_like(val_student_logits) * 0.1,
+                        "teacher_logits": torch.randn_like(val_student_logits) * 0.5,
+                        # 传递蒸馏参数
+                        "kl_type": kl_type,
+                        "lambda_": lambda_,
+                        "mixed_kl_weight": mixed_kl_weight,
                     }
                     
                     # 计算验证loss
@@ -651,7 +660,8 @@ def distillation_train(
     
     # 设置KL散度类型
     kl_type = distillation_config.get("kl_type", "forward")
-    lambda_ = distillation_config.get("lambda_", 0.5)
+    lambda_ = distillation_config.get("lambda_", 1.0)
+    mixed_kl_weight = distillation_config.get("mixed_kl_weight", 0.5)  # 混合KL权重
     
     # 参考GRPO的逻辑：如果policy_generation为None，使用policy作为生成接口
     NEED_REFIT = True
@@ -671,6 +681,7 @@ def distillation_train(
     max_steps = distillation_config["max_steps"]
     
     print(f"Starting from step {step}, max steps: {max_steps}")
+    print(f"Generation config: max_length={max_length}, temperature={temperature}, decoding_method={decoding_method}")
     
     try:
         for batch_idx, batch in enumerate(train_dataloader):
@@ -737,6 +748,7 @@ def distillation_train(
                 
                 # 2. 生成响应（使用与GRPO相同的rollout机制）
                 print("▶ Generating responses with student model...")
+                print(f"  🔍 Using generation config: max_length={max_length}, temperature={temperature}, decoding_method={decoding_method}")
                 #print(f"  🔍 student_generation type: {type(student_generation)}")
                 
                 # 检查是否需要refit
@@ -895,9 +907,10 @@ def distillation_train(
                             input_batch=repeated_batch,  # 使用重复后的batch
                             tokenizer=tokenizer,
                             task_to_env=distillation_task_env,  # 传递Ray actor虚拟环境
-                            max_seq_len=master_config["policy"]["max_total_sequence_length"],
+                            max_seq_len=min(max_length, master_config["policy"]["max_total_sequence_length"]),  # 使用配置的max_length
                             max_rollout_turns=1,  # 蒸馏只需要单轮生成
-                            greedy=True,  # 蒸馏使用确定性生成
+                            greedy=(decoding_method == "greedy"),  # 根据decoding_method决定是否greedy
+                            temperature=temperature,  # 传递配置的temperature
                         )
                         # 从rollout结果中提取生成的序列
                         generated_sequences = generated_batch["message_log"]
@@ -1712,6 +1725,11 @@ def distillation_train(
                     print("  ✓ Computing distillation loss...")
                     try:
                         # 使用损失函数计算蒸馏损失 - 修复：传递所有必要的参数
+                        # 将蒸馏参数添加到train_data中，供损失函数使用
+                        train_data["kl_type"] = kl_type
+                        train_data["lambda_"] = lambda_
+                        train_data["mixed_kl_weight"] = mixed_kl_weight
+                        
                         loss, loss_metrics = loss_fn(
                             student_logits,  # next_token_logits
                             train_data,      # data
@@ -1753,12 +1771,22 @@ def distillation_train(
                             if "val_loss" in distillation_save_state and distillation_save_state["val_loss"] is not None:
                                 current_best_val_loss = distillation_save_state["val_loss"]
                                 logger.log_metrics({"train/best_val_loss": current_best_val_loss}, step)
-                                print(f"  🔍 [Training] Current Best Val Loss = {current_best_val_loss:.6f}")
+                                #print(f"  🔍 [Training] Current Best Val Loss = {current_best_val_loss:.6f}")
+                            
+                            # 记录蒸馏参数
+                            logger.log_metrics({
+                                "train/kl_type": 1.0 if kl_type == "forward" else (2.0 if kl_type == "reverse" else 3.0),
+                                "train/lambda": lambda_,
+                                "train/mixed_kl_weight": mixed_kl_weight,
+                            }, step)
                             
                             # 打印训练loss信息
                             print(f"  ✅✅✅ [Training] Step {step}: Loss = {loss.item():.6f}")
                             if "kl_loss" in loss_metrics:
                                 print(f"  🔍 [Training] KL Loss = {loss_metrics['kl_loss']:.6f}")
+                            
+                            # 打印蒸馏参数信息
+                            #print(f"  🔍 [Training] KL Type: {kl_type}, Lambda: {lambda_}")
                         
                     except Exception as e:
                         print(f"  ❌ Failed to compute distillation loss: {e}")
@@ -2295,6 +2323,16 @@ def distillation_train(
                                 print(f"  🔍 [Validation] Avg Sequence Length = {val_metrics['val_avg_sequence_length']:.1f}")
                                 print(f"  🔍 [Validation] Max Sequence Length = {val_metrics.get('val_max_sequence_length', 0)}")
                                 print(f"  🔍 [Validation] Min Sequence Length = {val_metrics.get('val_min_sequence_length', 0)}")
+                            
+                            # 记录验证时的蒸馏参数
+                            logger.log_metrics({
+                                "validation/kl_type": 1.0 if kl_type == "forward" else (2.0 if kl_type == "reverse" else 3.0),
+                                "validation/lambda": lambda_,
+                                "validation/mixed_kl_weight": mixed_kl_weight,
+                                "eval/kl_type": 1.0 if kl_type == "forward" else (2.0 if kl_type == "reverse" else 3.0),
+                                "eval/lambda": lambda_,
+                                "eval/mixed_kl_weight": mixed_kl_weight,
+                            }, step + 1)
                         
                         if student_generation is not None:
                             student_generation.finish_generation()

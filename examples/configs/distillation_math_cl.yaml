@@ -5,11 +5,11 @@ policy:
   model_name: "Qwen/Qwen2.5-1.5B-Instruct" # 要比teacher model小很多
   tokenizer:
     name: ${policy.model_name} ## specify if you'd like to use a tokenizer different from the model's default
-  train_global_batch_size: 128  # 修改为128，与生成的数据量匹配
+  train_global_batch_size: 64  # 修改为128，与生成的数据量匹配
   train_micro_batch_size: 1  # 修改为1，减少内存使用
   generation_batch_size: 32 # Only used when generating using HF backend
   logprob_batch_size: 2  # 修改为2，减少内存使用
-  max_total_sequence_length: 512  # 修改为与GRPO一致，避免序列长度问题
+  max_total_sequence_length: 1024  # 修改为与GRPO一致，避免序列长度问题
   precision: "bfloat16"
 
   dtensor_cfg:
@@ -111,16 +111,17 @@ distillation:
   teacher_model_path: "Qwen/Qwen2.5-3B-Instruct"
   
   # 蒸馏策略参数
-  lambda: 0.5  # 学生自生成数据占比
-  kl_type: "forward"  # KL散度类型：forward, reverse, mixed
+  lambda: 1.0  # 学生自生成数据占比
+  kl_type: "mixed"  # KL散度类型：forward, reverse, mixed
+  mixed_kl_weight: 0.5  # 混合KL时的权重系数（当kl_type为"mixed"时使用）
   generate_strategy:  # 学生生成参数
     max_length: ${policy.max_total_sequence_length}  # 与policy配置保持一致
-    temperature: 0.1  # 采样温度（控制生成随机性，默认为0.1）
-    decoding_method: "greedy"  # 解码方式（如greedy、top_k）
+    temperature: 0.7  # 采样温度（控制生成随机性，默认为0.1）
+    decoding_method: "top_p"  # 解码方式（如greedy、top_k）
   
   # 训练配置（与GRPO完全一致）
-  max_steps: 1000
-  eval_steps: 100
+  max_steps: 2000
+  eval_steps: 50
   save_steps: 500
   logging_steps: 10
   num_prompts_per_step: 16  # 修改为16，减少内存使用

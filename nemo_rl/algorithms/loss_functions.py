@@ -998,6 +998,10 @@ class DistillationLossFn(LossFunction):
         # 计算KL divergence损失
         #print(f"  🔍 [DistillationLossFn] Computing KL divergence loss...")
         
+        # 获取蒸馏参数
+        kl_type = data.get("kl_type", "forward")  # 默认使用forward KL
+        lambda_ = data.get("lambda_", 0.5)        # 默认lambda为0.5
+        
         # 应用温度缩放
         temperature = getattr(self, 'temperature', 1.0)
         if temperature != 1.0:
@@ -1014,8 +1018,23 @@ class DistillationLossFn(LossFunction):
         student_probs = torch.clamp(student_probs, epsilon, 1.0 - epsilon)
         teacher_probs = torch.clamp(teacher_probs, epsilon, 1.0 - epsilon)
         
-        # KL divergence: KL(student || teacher)
-        kl_loss = torch.sum(teacher_probs * torch.log(teacher_probs / student_probs), dim=-1)
+        # 根据kl_type计算不同的KL divergence
+        if kl_type == "forward":
+            # KL(student || teacher) - 学生模型学习教师模型的分布
+            kl_loss = torch.sum(teacher_probs * torch.log(teacher_probs / student_probs), dim=-1)
+        elif kl_type == "reverse":
+            # KL(teacher || student) - 教师模型学习学生模型的分布
+            kl_loss = torch.sum(student_probs * torch.log(student_probs / teacher_probs), dim=-1)
+        elif kl_type == "mixed":
+            # 混合KL: 使用可配置的权重
+            mixed_weight = data.get("mixed_kl_weight", 0.5)  # 从配置中获取权重
+            kl_forward = torch.sum(teacher_probs * torch.log(teacher_probs / student_probs), dim=-1)
+            kl_reverse = torch.sum(student_probs * torch.log(student_probs / teacher_probs), dim=-1)
+            kl_loss = mixed_weight * kl_forward + (1.0 - mixed_weight) * kl_reverse
+        else:
+            # 默认使用forward KL
+            kl_loss = torch.sum(teacher_probs * torch.log(teacher_probs / student_probs), dim=-1)
+            print(f"  ⚠️ [DistillationLossFn] Unknown kl_type: {kl_type}, using forward KL")
         
         # 应用mask（如果有的话）
         if "token_mask" in data:
@@ -1028,9 +1047,15 @@ class DistillationLossFn(LossFunction):
         # 计算平均损失
         kl_loss = torch.mean(kl_loss)
         
+        # 应用lambda_参数：控制学生自生成数据占比
+        # lambda_ = 0.0: 完全使用教师数据
+        # lambda_ = 1.0: 完全使用学生自生成数据
+        # lambda_ = 0.5: 50%教师数据 + 50%学生数据
+        lambda_weighted_loss = lambda_ * kl_loss
+        
         # 应用alpha权重
         alpha = getattr(self, 'alpha', 0.5)
-        total_loss = alpha * kl_loss
+        total_loss = alpha * lambda_weighted_loss
         
         # print(f"  ✅✅✅ [DistillationLossFn] KL loss computed successfully: {kl_loss.item():.6f}")
         
@@ -1039,6 +1064,10 @@ class DistillationLossFn(LossFunction):
             "kl_loss": kl_loss.item(),
             "temperature": temperature,
             "alpha": alpha,
+            "kl_type_numeric": 1.0 if kl_type == "forward" else (2.0 if kl_type == "reverse" else 3.0),
+            "lambda": lambda_,
+            "lambda_weighted_loss": lambda_weighted_loss.item(),
+            "mixed_kl_weight": data.get("mixed_kl_weight", 0.5),
             "num_valid_samples": expected_batch_size,
             # 只保留数值类型的形状信息，确保metrics累加正常工作
             "student_batch_size": student_logits.shape[0],
