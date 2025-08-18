@@ -108,14 +108,21 @@ class BatchedDataDict(UserDict, Generic[DictT]):
                 tensor_or_list = torch.cat(list_of_tensors)
             elif isinstance(list_of_tensors[0], torch.Tensor):
                 pad_value = pad_value_dict.get(k, 0)
-
-                list_of_tensors = [
-                    row.flatten() for tensor in list_of_tensors for row in tensor
-                ]
-                # TODO: can we avoid padding locally then padding globally?
-                tensor_or_list = torch.nn.utils.rnn.pad_sequence(
-                    list_of_tensors, batch_first=True, padding_value=pad_value
-                )
+                
+                # 特殊处理：对于需要保持形状的字段，不进行展平
+                preserve_shape_fields = ["teacher_logits", "student_logits"]
+                if k in preserve_shape_fields:
+                    # 直接拼接，保持原始形状
+                    tensor_or_list = torch.cat(list_of_tensors, dim=0)
+                else:
+                    # 原有的展平逻辑
+                    list_of_tensors = [
+                        row.flatten() for tensor in list_of_tensors for row in tensor
+                    ]
+                    # TODO: can we avoid padding locally then padding globally?
+                    tensor_or_list = torch.nn.utils.rnn.pad_sequence(
+                        list_of_tensors, batch_first=True, padding_value=pad_value
+                    )
             else:
                 raise NotImplementedError(
                     (
