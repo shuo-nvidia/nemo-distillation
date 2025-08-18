@@ -2324,18 +2324,28 @@ def distillation_train(
                 # 创建最终的干净BatchedDataDict
                 final_train_data = BatchedDataDict[DistillationLossDataDict](clean_training_data)
 
-                # 从distillation_safe_data中获取原始的3D logits数据
-                if "distillation_teacher_logits" in distillation_safe_data:
-                    final_train_data["teacher_logits"] = distillation_safe_data["distillation_teacher_logits"]
-                    print(f"  ✅ Teacher logits added to training data: {final_train_data['teacher_logits'].shape}")
+                # 从展平后的数据和形状信息中重建原始的3D logits数据
+                if "distillation_teacher_logits_flattened" in distillation_safe_data and "distillation_teacher_logits_flattened_shape" in distillation_safe_data:
+                    # 重建teacher_logits
+                    flattened_logits = distillation_safe_data["distillation_teacher_logits_flattened"]
+                    shape_info = distillation_safe_data["distillation_teacher_logits_flattened_shape"]
+                    batch_size, seq_len, vocab_size = shape_info.tolist()
+                    teacher_logits = flattened_logits.view(batch_size, seq_len, vocab_size)
+                    final_train_data["teacher_logits"] = teacher_logits
+                    print(f"  ✅ Teacher logits reconstructed and added to training data: {teacher_logits.shape}")
                 else:
-                    print(f"  ❌ Teacher logits not found in distillation_safe_data!")
+                    print(f"  ❌ Teacher logits data not found in distillation_safe_data!")
                     
-                if "distillation_student_logits" in distillation_safe_data:
-                    final_train_data["student_logits"] = distillation_safe_data["distillation_student_logits"]
-                    print(f"  ✅ Student logits added to training data: {final_train_data['student_logits'].shape}")
+                if "distillation_student_logits_flattened" in distillation_safe_data and "distillation_student_logits_flattened_shape" in distillation_safe_data:
+                    # 重建student_logits
+                    flattened_logits = distillation_safe_data["distillation_student_logits_flattened"]
+                    shape_info = distillation_safe_data["distillation_student_logits_flattened_shape"]
+                    batch_size, seq_len, vocab_size = shape_info.tolist()
+                    student_logits = flattened_logits.view(batch_size, seq_len, vocab_size)
+                    final_train_data["student_logits"] = student_logits
+                    print(f"  ✅ Student logits reconstructed and added to training data: {student_logits.shape}")
                 else:
-                    print(f"  ❌ Student logits not found in distillation_safe_data!")
+                    print(f"  ❌ Student logits data not found in distillation_safe_data!")
                 
                 # 验证蒸馏数据是否正确添加
                 if "teacher_logits" in final_train_data:
