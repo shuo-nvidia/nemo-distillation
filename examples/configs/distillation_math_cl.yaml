@@ -132,6 +132,7 @@ env:
 
 
 data:
+  prompt_file: "math.txt"
   max_input_seq_length: ${policy.max_total_sequence_length} 
   system_prompt_file: null  
   dataset_name: "pe-nlp/math-cl"  
@@ -142,7 +143,6 @@ cluster:
   gpus_per_node: 8
   num_nodes: 1
 
-）
 env_vars:
   PYTORCH_CUDA_ALLOC_CONF: "expandable_segments:False"  
   CUDA_LAUNCH_BLOCKING: "1"  
