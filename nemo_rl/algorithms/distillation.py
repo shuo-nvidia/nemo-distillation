@@ -2324,10 +2324,8 @@ def distillation_train(
                 # 创建最终的干净BatchedDataDict
                 final_train_data = BatchedDataDict[DistillationLossDataDict](clean_training_data)
 
-                # 关键修复：将蒸馏数据直接添加到训练数据字典中，而不是作为属性
-                # 这样worker就能正确访问这些数据
-                final_train_data["teacher_logits"] = distillation_safe_data.get("distillation_teacher_logits_flattened")
-                final_train_data["student_logits"] = distillation_safe_data.get("distillation_student_logits_flattened")
+                final_train_data["teacher_logits"] = train_data.get("teacher_logits")
+                final_train_data["student_logits"] = train_data.get("student_logits")
                 
                 # 验证蒸馏数据是否正确添加
                 if "teacher_logits" in final_train_data:
@@ -2347,15 +2345,12 @@ def distillation_train(
                 train_data = final_train_data
                 
                 with timer.time("training_prep"):
-                    # print(f"  🔍 Preparing student policy for training...")
-                    pass
+
                     student_policy.prepare_for_training()  # 与GRPO完全一致
                     STUDENT_GENERATION_STALE = True  # *** MARK AS STALE AFTER TRAINING ***
                     print(f"  ✅ Student policy prepared for training")
                 
                 with timer.time("policy_training"):
-                    # print(f"  🔍 Starting policy training...")
-                    pass
                     try:
                         train_results = student_policy.train(train_data, loss_fn)
                         print("  ✅ Training completed")
@@ -2404,8 +2399,6 @@ def distillation_train(
                     print(f"  ✓ Running validation at step {step}")
                     try:
                         if NEED_REFIT and STUDENT_GENERATION_STALE:
-                            # print(f"  🔍 Refitting for validation...")
-                            pass
                             # 传递生成配置参数
                             generation_config = {
                                 'temperature': temperature,
