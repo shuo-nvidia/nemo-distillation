@@ -890,15 +890,9 @@ class DistillationLossFn(LossFunction):
         # 计算平均损失
         kl_loss = torch.mean(kl_loss)
         
-        # 应用lambda_参数：控制学生自生成数据占比
-        # lambda_ = 0.0: 完全使用教师数据
-        # lambda_ = 1.0: 完全使用学生自生成数据
-        # lambda_ = 0.5: 50%教师数据 + 50%学生数据
-        lambda_weighted_loss = lambda_ * kl_loss
-        
         # 应用alpha权重
-        alpha = getattr(self, 'alpha', 0.5)
-        total_loss = alpha * lambda_weighted_loss
+        alpha = getattr(self, 'alpha', 1.0)
+        total_loss = alpha * kl_loss
         
         # print(f"  ✅✅✅ [DistillationLossFn] KL loss computed successfully: {kl_loss.item():.6f}")
         
@@ -909,7 +903,6 @@ class DistillationLossFn(LossFunction):
             "alpha": alpha,
             "kl_type_numeric": 1.0 if kl_type == "forward" else (2.0 if kl_type == "reverse" else 3.0),
             "lambda": lambda_,
-            "lambda_weighted_loss": lambda_weighted_loss.item(),
             "mixed_kl_weight": data.get("mixed_kl_weight", 0.5),
             "num_valid_samples": expected_batch_size,
             # 只保留数值类型的形状信息，确保metrics累加正常工作

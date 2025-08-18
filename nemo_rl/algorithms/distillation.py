@@ -750,33 +750,15 @@ def distillation_train(
                 break
                 
             print(f"\n{'=' * 25} Step {step + 1}/{max_steps} {'=' * 25}")
-            # print(f"🔍 Starting batch {batch_idx}, batch type: {type(batch)}")
-            pass
             
             with timer.time("total_step_time"):
                 # 1. 准备批次数据（完全按照GRPO模式）
                 print("▶ Preparing batch...")
-                #print(f"  🔍 Batch keys: {list(batch.keys()) if hasattr(batch, 'keys') else 'No keys'}")
                 
                 with timer.time("data_processing"):
                     # 从batch中提取message_log，与GRPO保持一致
                     batch: BatchedDataDict[DatumSpec]
-                    # print(f"  🔍 Batch type after annotation: {type(batch)}")
-                    pass
-                    
-                    # 检查batch的结构
-                    if hasattr(batch, 'keys'):
-                        #print(f"  🔍 Batch keys: {list(batch.keys())}")
-                        if 'message_log' in batch:
-                            #print(f"  🔍 message_log type: {type(batch['message_log'])}")
-                            #print(f"  🔍 message_log length: {len(batch['message_log'])}")
-                            if len(batch['message_log']) > 0:
-                                #print(f"  🔍 First message_log item type: {type(batch['message_log'][0])}")
-                                if hasattr(batch['message_log'][0], 'keys'):
-                                    #print(f"  🔍 First message_log item keys: {list(batch['message_log'][0].keys())}")
-                                    pass
-                    else:
-                        print(f"  ⚠️ Batch does not have keys attribute")
+
                     
                     message_logs = batch["message_log"]
                     print(f"  ✅ Successfully extracted message_logs")
@@ -1178,15 +1160,6 @@ def distillation_train(
                         else:
                             flat_messages['token_loss_mask'] = flat_messages['token_loss_mask'].expand(-1, expected_seq_len)
                     
-                    #print(f"  🔍 After shape validation and fixing:")
-                    #print(f"  🔍 flat_messages['advantages'] shape: {flat_messages['advantages'].shape}")
-                    #print(f"  🔍 flat_messages['generation_logprobs'] shape: {flat_messages['generation_logprobs'].shape}")
-                    #print(f"  🔍 flat_messages['token_loss_mask'] shape: {flat_messages['token_loss_mask'].shape}")
-                    #print(f"  🔍 repeated_batch['loss_multiplier'] shape: {repeated_batch['loss_multiplier'].shape}")
-                    
-                    # 关键修复：强制确保所有字段的形状都正确
-                    # print(f"  🔍 Final shape validation and forced fixing...")
-                    pass
                     
                     # 确保loss_multiplier是正确的形状
                     if isinstance(repeated_batch["loss_multiplier"], torch.Tensor):
@@ -1761,8 +1734,7 @@ def distillation_train(
                         import traceback
                         traceback.print_exc()
                         raise
-                loss=train_results["loss"].numpy()
-                #grad_norm=train_results["grad_norm"].numpy()
+                loss=train_results["all_mb_metrics"]["loss"]
                 print(f"  ✅ Distillation loss computed successfully")
                 # 记录损失
                 if logger is not None:
