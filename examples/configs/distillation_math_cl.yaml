@@ -1,15 +1,13 @@
-# 蒸馏训练配置文件 - 参考GRPO标准格式
 
-# 单一Policy配置（学生模型）
 policy:
-  model_name: "Qwen/Qwen2.5-1.5B-Instruct" # 要比teacher model小很多
+  model_name: "Qwen/Qwen2.5-1.5B-Instruct" 
   tokenizer:
     name: ${policy.model_name} ## specify if you'd like to use a tokenizer different from the model's default
-  train_global_batch_size: 64  # 修改为128，与生成的数据量匹配
-  train_micro_batch_size: 1  # 修改为1，减少内存使用
-  generation_batch_size: 32 # Only used when generating using HF backend
-  logprob_batch_size: 2  # 修改为2，减少内存使用
-  max_total_sequence_length: 512  # 修改为512，避免序列长度过长
+  train_global_batch_size: 64  
+  train_micro_batch_size: 1  
+  generation_batch_size: 32 
+  logprob_batch_size: 2  
+  max_total_sequence_length: 512  
   precision: "bfloat16"
 
   dtensor_cfg:
@@ -24,14 +22,11 @@ policy:
   megatron_cfg:
     enabled: false
 
-  # See docs/design-docs/sequence-packing-and-dynamic-batching.md 
-  # for more details on dynamic batching and sequence packing.
-  # makes the training sequence length divisible by the tensor parallel size
-  # this is useful for sequence parallel training
+
   make_sequence_length_divisible_by: ${policy.dtensor_cfg.tensor_parallel_size}
   max_grad_norm: 1.0
 
-  # 添加缺失的序列打包和动态批处理配置
+
   dynamic_batching:
     enabled: False
     train_mb_tokens: ${mul:${policy.max_total_sequence_length}, ${policy.train_micro_batch_size}}
@@ -69,45 +64,43 @@ policy:
         total_iters: 10000000000
     - milestones: [50]
 
-  # 生成配置（与GRPO完全一致）
+
   generation:
-    backend: "vllm"  # 使用vLLM后端，与GRPO保持一致，确保有generate方法
-    max_new_tokens: 128  # 限制生成token数量，避免序列过长
+    backend: "vllm"  
+    max_new_tokens: 128 
     temperature: 1.0
     top_p: 1.0
     top_k: null
     stop_token_ids: null
     stop_strings: null
-    # 移除错误的pad_token_id字段，让系统使用tokenizer的默认值
+ 
     vllm_cfg:
       async_engine: false
       precision: ${policy.precision}
       tensor_parallel_size: 1
       pipeline_parallel_size: 1
-      gpu_memory_utilization: 0.5  # 降低内存使用率，从0.6改为0.5
-      max_model_len: 512  # 固定为512，避免序列长度过长
+      gpu_memory_utilization: 0.5  
+      max_model_len: 512  
       enforce_eager: False
-      # 禁用分布式执行，避免端口冲突
-      distributed_executor_backend: null
-      # 移除skip_tokenizer_init和load_format，使用系统默认值
-    colocated:
-      # true: generation shares training GPUs
-      # false: uses dedicated generation resources
-      enabled: true
-      # only relevant when enabled is false
-      resources:
-        gpus_per_node: null # Decides num gpus to be dedicated to generation when there is one node in the cluster i.e cluster.num_nodes == 1
-        num_nodes: null # Decides number of nodes to be dedicated to generation
 
-# 损失函数配置（参考GRPO的loss_fn结构）
+      distributed_executor_backend: null
+  
+    colocated:
+
+      enabled: true
+
+      resources:
+        gpus_per_node: null 
+        num_nodes: null 
+
+
 loss_fn:
   temperature: 1.0
-  alpha: 0.5  # 蒸馏损失权重
-  beta: 0.5   # 任务损失权重
+  alpha: 0.5 
+  beta: 0.5   
 
 # 蒸馏算法配置
 distillation:
-  # 教师模型路径（用于加载权重）
   teacher_model_path: "Qwen/Qwen2.5-3B-Instruct"
   
   # 蒸馏策略参数
@@ -120,71 +113,69 @@ distillation:
     temperature: 0.7  # 采样温度（控制生成随机性，默认为0.1）
     decoding_method: "top_p"  # 解码方式（如greedy、top_k）
   
-  # 训练配置（与GRPO完全一致）
+
   max_steps: 2000
   eval_steps: 50
   save_steps: 500
   logging_steps: 10
-  num_prompts_per_step: 16  # 修改为16，减少内存使用
-  num_generations_per_prompt: 8  # 修改为8，减少内存使用
-  val_batch_size: 64  # 修改为64，减少内存使用
+  num_prompts_per_step: 16  
+  num_generations_per_prompt: 8  
+  val_batch_size: 64  
   val_period: 100
   val_at_start: false
   max_val_samples: 100
 
-# 环境配置（参考GRPO的env结构）
+
 env:
   math:
     num_workers: 8
 
-# 数据配置（与GRPO完全一致）
+
 data:
-  max_input_seq_length: ${policy.max_total_sequence_length} # upper bound, real truncation occurs at vllm.max_model_len
-  prompt_file: "math.txt"  # 使用与GRPO math任务相同的prompt文件
-  system_prompt_file: null  # 与GRPO保持一致
-  dataset_name: "pe-nlp/math-cl"  # 使用技术文档中指定的数据集
+  max_input_seq_length: ${policy.max_total_sequence_length} 
+  system_prompt_file: null  
+  dataset_name: "pe-nlp/math-cl"  
   shuffle: true
 
-# 集群配置
+
 cluster:
   gpus_per_node: 8
   num_nodes: 1
 
-# 内存管理配置（参考GRPO）
+）
 env_vars:
-  PYTORCH_CUDA_ALLOC_CONF: "expandable_segments:False"  # 控制内存分配策略
-  CUDA_LAUNCH_BLOCKING: "1"  # 启用同步CUDA调用，便于调试
-  # 禁用分布式初始化，避免端口冲突
+  PYTORCH_CUDA_ALLOC_CONF: "expandable_segments:False"  
+  CUDA_LAUNCH_BLOCKING: "1"  
+  
   VLLM_DISABLE_DISTRIBUTED_INIT: "1"
   NCCL_DISABLE: "1"
 
-# 日志配置
+
 logger:
-  log_dir: "logs/distillation"  # Base directory for all logs
-  num_val_samples_to_print: 0 # Number of validation samples to pretty print on terminal
-  wandb_enabled: true  # 启用wandb监控
-  tensorboard_enabled: true  # 启用tensorboard
-  mlflow_enabled: false  # Disable MLflow logging
-  monitor_gpus: true  # If true, will monitor GPU usage and log to wandb and/or tensorboard
+  log_dir: "logs/distillation" 
+  num_val_samples_to_print: 0 
+  wandb_enabled: true  
+  tensorboard_enabled: true  
+  mlflow_enabled: false 
+  monitor_gpus: true  
   wandb:
     project: "nemo-distillation"
     name: "distillation-${data.dataset_name}-${policy.model_name}"
-    entity: null  # 如果需要可以设置您的wandb用户名
+    entity: null  
   tensorboard:
     log_dir: "tb_logs-distillation-${data.dataset_name}"
   mlflow:
     experiment_name: "distillation-dev"
     run_name: "distillation-math-cl-logger"
   gpu_monitoring:
-    collection_interval: 10  # How often to collect GPU usage metrics (in seconds)
-    flush_interval: 10  # How often to flush GPU usage metrics to the loggers (in seconds)
+    collection_interval: 10 
+    flush_interval: 10 
 
-# 检查点配置
 checkpointing:
   enabled: true
-  checkpoint_dir: "checkpoints/distillation"  # 使用checkpoint_dir而不是save_dir
-  metric_name: "val_loss"  # 用于选择最佳检查点的指标
-  higher_is_better: false  # 损失越小越好
-  keep_top_k: 3  # 保留前3个最佳检查点
-  save_period: 500  # 每500步保存一次
+  checkpoint_dir: "checkpoints/distillation"  
+  metric_name: "val_loss"  
+  higher_is_better: false 
+  keep_top_k: 3  
+  save_period: 500 
   checkpoint_must_save_by: "2025-12-31"
