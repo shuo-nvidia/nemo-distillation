@@ -389,15 +389,21 @@ def refit_student_generation(
     _refit_buffer_size_gb: Optional[int] = None,
     timer: Optional[Timer] = None,
     generation_config: Optional[dict] = None,
+    master_config: Optional[dict] = None,
 ) -> None:
     """Refit the student generation interface with the latest policy weights.
     
     参考GRPO的refit_policy_generation实现，但增加了蒸馏特定的生成配置更新功能。
     这使得蒸馏任务能够动态调整生成参数，而不需要重新初始化整个生成后端。
-    """
-    """Refit the student generation interface with the latest policy weights.
     
-    参考GRPO的refit_policy_generation实现
+    Args:
+        student_policy: 学生策略模型
+        student_generation: 学生生成接口
+        colocated_inference: 是否使用共置推理
+        _refit_buffer_size_gb: 缓冲区大小（GB）
+        timer: 计时器
+        generation_config: 生成配置字典
+        master_config: 主配置字典，用于获取max_total_sequence_length等参数
     """
     if colocated_inference:
         student_policy.offload_before_refit()
@@ -818,7 +824,7 @@ def distillation_train(
                             'decoding_method': decoding_method,
                             'max_length': max_length,
                         }
-                        refit_student_generation(student_policy, student_generation, colocated_inference, generation_config=generation_config)
+                        refit_student_generation(student_policy, student_generation, colocated_inference, generation_config=generation_config, master_config=master_config)
                         STUDENT_GENERATION_STALE = False
                         NEED_REFIT = False
                         print(f"  ✅ Student generation refitted")
@@ -2375,19 +2381,9 @@ def distillation_train(
                 #print(f"  🔍   distillation_student_logits: {final_train_data.distillation_student_logits.shape if final_train_data.distillation_student_logits is not None else 'None'}")
                 #print(f"  🔍   distillation_student_logits_shape: {final_train_data.distillation_student_logits_shape.shape if final_train_data.distillation_student_logits_shape is not None else 'None'}")
                 
-                # 关键修复：同时将蒸馏数据存储在以_开头的特殊字段中，确保能通过Ray传递
-                # print(f"  🔍 Also storing distillation data in special _ fields for Ray compatibility...")
-                pass
-                final_train_data["_distillation_teacher_logits"] = distillation_safe_data.get("distillation_teacher_logits_flattened")
-                final_train_data["_distillation_teacher_logits_shape"] = distillation_safe_data.get("distillation_teacher_logits_flattened_shape")
-                final_train_data["_distillation_student_logits"] = distillation_safe_data.get("distillation_student_logits_flattened")
-                final_train_data["_distillation_student_logits_shape"] = distillation_safe_data.get("distillation_student_logits_flattened_shape")
-                
-                #print(f"  🔍 Distillation data also stored in _ fields:")
-                #print(f"  🔍   _distillation_teacher_logits: {final_train_data['_distillation_teacher_logits'].shape if final_train_data['_distillation_teacher_logits'] is not None else 'None'}")
-                #print(f"  🔍   _distillation_teacher_logits_shape: {final_train_data['_distillation_teacher_logits_shape'].shape if final_train_data['_distillation_teacher_logits_shape'] is not None else 'None'}")
-                #print(f"  🔍   _distillation_student_logits: {final_train_data['_distillation_student_logits'].shape if final_train_data['_distillation_student_logits'] is not None else 'None'}")
-                # print(f"  🔍   _distillation_student_logits_shape: {final_train_data['_distillation_student_logits_shape'].shape if final_train_data['_distillation_student_logits_shape'] is not None else 'None'}")
+                # 关键修复：不将蒸馏数据存储为字典键值对，只使用属性存储
+                # 这样可以避免在shard_by_batch_size时出现问题
+                # print(f"  🔍 Distillation data stored as attributes only (no dictionary keys)")
                 pass
                 
                 # 关键修复：验证final_train_data只包含标准训练字段，不包含蒸馏字段
@@ -2487,7 +2483,7 @@ def distillation_train(
                                 'max_length': max_length,
                             }
                             refit_student_generation(
-                                student_policy, student_generation, colocated_inference, generation_config=generation_config
+                                student_policy, student_generation, colocated_inference, generation_config=generation_config, master_config=master_config
                             )
                             STUDENT_GENERATION_STALE = False
                         else:
