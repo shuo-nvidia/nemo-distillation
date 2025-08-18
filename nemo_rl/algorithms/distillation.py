@@ -1333,8 +1333,7 @@ def distillation_train(
                         "sample_mask": repeated_batch["loss_multiplier"],
                     })
                     print(f"  ✅ Training data prepared")
-                    #print(f"  🔍 Training data batch size: {train_data.size}")
-                    #print(f"  🔍 Training data keys: {list(train_data.keys())}")
+
                     
                     # 验证batch size是否正确
                     if train_data.size != expected_batch_size:
@@ -1632,11 +1631,20 @@ def distillation_train(
                         except Exception as e:
                             print(f"  ❌ Failed to load teacher model: {e}")
                             print(f"  ⚠️ Falling back to student logits placeholder")
+                            import traceback
+                            traceback.print_exc()
                             # print(f"  🔍 This will result in KL loss = 0 (no distillation effect)")
                             pass
                             
                             # 回退到占位符（不推荐，但确保程序能运行）
                             print(f"  ⚠️ WARNING: This will result in ineffective distillation training!")
+                            # 创建占位符teacher_logits以避免错误
+                            batch_size = train_data["input_ids"].shape[0]
+                            seq_len = train_data["input_ids"].shape[1]
+                            vocab_size = 32000  # 假设的词汇表大小
+                            placeholder_logits = torch.randn(batch_size, seq_len, vocab_size) * 0.1
+                            train_data["teacher_logits"] = placeholder_logits
+                            print(f"  ✅ Added placeholder teacher_logits with shape: {placeholder_logits.shape}")
                     
                     # 关键修复：准备学生模型进行logprob推理
                     print("  ✓ Preparing student model for logprob inference...")
