@@ -1615,71 +1615,26 @@ def distillation_train(
                             try:
                                 # 使用get_logprobs方法获取logits
                                 result = student_policy.get_logprobs(train_data_for_logprobs)
-                                # print(f"  🔍 get_logprobs successful")
-                                pass
-                                
-                                # 检查返回结果的结构
-                                # print(f"  🔍 Result keys: {list(result.keys())}")
-                                pass
-                                for key, value in result.items():
-                                    if torch.is_tensor(value):
-                                        # print(f"  🔍 {key}: {value.shape}")
-                                        pass
-                                    else:
-                                        # print(f"  🔍 {key}: {type(value)}")
-                                        pass
                                 
                                 # 尝试获取logits
                                 if "logits" in result:
                                     student_logits = result["logits"]
-                                    # print(f"  🔍 Successfully got logits from result")
-                                    pass
+ 
                                 elif "logprobs" in result:
-                                    # 如果只有logprobs，我们需要从logprobs重建logits
-                                    # print(f"  🔍 Only logprobs available, attempting to reconstruct logits...")
-                                    pass
                                     logprobs = result["logprobs"]
-                                    # print(f"  🔍 logprobs shape: {logprobs.shape}")
-                                    pass
-                                    
-                                    # 这里我们需要实现从logprobs到logits的转换
-                                    # 由于这是一个复杂的转换，我们先使用logprobs作为替代
-                                    # print(f"  🔍 Using logprobs as student_logits for now...")
-                                    pass
+
                                     student_logits = logprobs.unsqueeze(-1).expand(-1, -1, 151936)  # 假设vocab_size=151936
-                                    # print(f"  🔍 Reconstructed logits shape: {student_logits.shape}")
-                                    pass
                                 else:
                                     raise ValueError(f"Neither 'logits' nor 'logprobs' found in result: {list(result.keys())}")
                                 
                             except Exception as e:
-                                # print(f"  🔍 get_logprobs failed: {e}")
-                                pass
-                                # print(f"  🔍 Trying alternative approach...")
-                                pass
                                 
                                 # 如果get_logprobs失败，尝试直接访问模型
                                 try:
-                                    # print(f"  🔍 Attempting to access model directly...")
-                                    pass
-                                    
-                                    # 获取第一个worker
                                     first_worker = student_policy.worker_group.workers[0]
-                                    
-                                    # 检查worker是否有model属性
-                                    # print(f"  🔍 Checking worker attributes...")
-                                    pass
                                     worker_attrs = dir(first_worker)
-                                    # print(f"  🔍 Worker attributes: {worker_attrs}")
-                                    pass
-                                    
-                                    # 尝试调用worker的get_logprobs方法
-                                    # print(f"  🔍 Calling worker.get_logprobs directly...")
-                                    pass
                                     # 直接调用方法，不使用.remote()
                                     worker_result = first_worker.get_logprobs(train_data_for_logprobs)
-                                    # print(f"  🔍 Worker get_logprobs successful")
-                                    pass
                                     
                                     # 处理worker结果
                                     if "logits" in worker_result:
@@ -1691,21 +1646,12 @@ def distillation_train(
                                         raise ValueError(f"Worker result missing logits/logprobs: {list(worker_result.keys())}")
                                         
                                 except Exception as e2:
-                                    # print(f"  🔍 Direct worker access also failed: {e2}")
-                                    pass
                                     raise RuntimeError(f"All approaches to get student logits failed: {e2}")
-                            
-                            # print(f"  🔍 Raw student logits shape: {student_logits.shape}")
-                            pass
                             
                             # 如果batch size被调整了，恢复到原始大小
                             if student_logits.shape[0] > current_batch_size:
-                                # print(f"  🔍 Restoring original batch size...")
-                                pass
                                 student_logits = student_logits[:current_batch_size]
-                                # print(f"  🔍 Final student logits shape: {student_logits.shape}")
-                                pass
-                            
+
                         
                         print(f"  ✅ Student logits computed successfully")
 
@@ -1840,7 +1786,7 @@ def distillation_train(
                 print("  🔍 Cleaning training data for worker...")
                 
                 # 只保留worker需要的标准张量字段
-                worker_required_fields = ["input_ids", "input_lengths", "token_mask", "sample_mask"]
+                worker_required_fields = ["input_ids", "input_lengths", "token_mask", "sample_mask", "teacher_logits", "student_logits", "student_logits"]
                 clean_worker_data = {}
                 
                 for field in worker_required_fields:
