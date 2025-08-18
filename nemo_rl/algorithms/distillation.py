@@ -2324,23 +2324,24 @@ def distillation_train(
                 # 创建最终的干净BatchedDataDict
                 final_train_data = BatchedDataDict[DistillationLossDataDict](clean_training_data)
 
-                final_train_data.distillation_teacher_logits = distillation_safe_data.get("distillation_teacher_logits_flattened")
-                final_train_data.distillation_teacher_logits_shape = distillation_safe_data.get("distillation_teacher_logits_flattened_shape")
-                final_train_data.distillation_student_logits = distillation_safe_data.get("distillation_student_logits_flattened")
-                final_train_data.distillation_student_logits_shape = distillation_safe_data.get("distillation_student_logits_flattened_shape")
+                # 关键修复：将蒸馏数据直接添加到训练数据字典中，而不是作为属性
+                # 这样worker就能正确访问这些数据
+                final_train_data["teacher_logits"] = distillation_safe_data.get("distillation_teacher_logits_flattened")
+                final_train_data["student_logits"] = distillation_safe_data.get("distillation_student_logits_flattened")
+                
+                # 验证蒸馏数据是否正确添加
+                if "teacher_logits" in final_train_data:
+                    print(f"  ✅ Teacher logits added to training data: {final_train_data['teacher_logits'].shape}")
+                else:
+                    print(f"  ❌ Teacher logits not found in training data!")
+                    
+                if "student_logits" in final_train_data:
+                    print(f"  ✅ Student logits added to training data: {final_train_data['student_logits'].shape}")
+                else:
+                    print(f"  ❌ Student logits not found in training data!")
                 
                 final_keys = list(final_train_data.keys())
-
-                
-                # 检查是否包含蒸馏字段
-                distillation_keys = [k for k in final_keys if k.startswith(('distillation_', '_distillation_'))]
-                if distillation_keys:
-                    print(f"  ⚠️ Warning: final_train_data still contains distillation fields: {distillation_keys}")
-                    for key in distillation_keys:
-                        del final_train_data[key]
-
-                else:
-                    print(f"  ✅ final_train_data only contains standard fields")
+                print(f"  🔍 Final training data keys: {final_keys}")
                 
                 # 使用干净的训练数据
                 train_data = final_train_data
