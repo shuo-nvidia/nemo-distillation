@@ -824,6 +824,7 @@ def distillation_train(
                     from nemo_rl.environments.interfaces import EnvironmentInterface, EnvironmentReturn
                     from typing import Any, Dict
                     import torch
+                    from nemo_rl.models.generation.interfaces import GenerationDatumSpec
                     
                     @ray.remote
                     class DistillationVirtualEnvironment:
@@ -837,6 +838,14 @@ def distillation_train(
                             
                             # 确保返回的数据结构正确
                             batch_size = len(messages)
+                            
+                            # 添加调试信息
+                            print(f"  🔍 [VirtualEnv] Processing {batch_size} messages")
+                            for i, msg in enumerate(messages[:2]):  # 只检查前2个
+                                if isinstance(msg, dict) and "token_ids" in msg:
+                                    print(f"    Message {i}: {len(msg['token_ids'])} tokens")
+                                else:
+                                    print(f"    Message {i}: {type(msg)}")
                             
                             # env_observations: 环境观察，对于蒸馏任务返回空的assistant消息
                             env_observations = [{"role": "assistant", "content": ""} for _ in range(batch_size)]
@@ -935,11 +944,13 @@ def distillation_train(
                         total_length = sum(len(msg["token_ids"]) for msg in message_log)
                         if total_length > max_input_len:
                             print(f"  ⚠️ Sample {i} sequence length {total_length} exceeds max_input_len {max_input_len}, truncating...")
-                            # 截断到最大允许长度
+                            # 截断到最大允许长度，但确保至少保留一些内容
                             remaining_length = max_input_len
                             for msg in message_log:
                                 if remaining_length <= 0:
-                                    msg["token_ids"] = msg["token_ids"][:0]  # 清空
+                                    # 不要完全清空，保留至少一个token
+                                    if len(msg["token_ids"]) > 0:
+                                        msg["token_ids"] = msg["token_ids"][:1]
                                 else:
                                     msg_length = len(msg["token_ids"])
                                     if msg_length > remaining_length:
@@ -948,7 +959,13 @@ def distillation_train(
                                     else:
                                         remaining_length -= msg_length
                     
-                    print(f"  ✅ Sequence length check completed")
+                    # 最终验证：确保所有序列都有内容
+                    print(f"  🔍 Final validation before rollout:")
+                    for i, message_log in enumerate(repeated_batch["message_log"][:3]):  # 只检查前3个样本
+                        total_length = sum(len(msg["token_ids"]) for msg in message_log)
+                        print(f"    Sample {i}: {total_length} tokens")
+                        if total_length == 0:
+                            print(f"    ❌ Sample {i} is empty!")
                     
                     # 使用rollout生成响应，与GRPO完全一致
                     try:
@@ -996,9 +1013,83 @@ def distillation_train(
                             print(f"  ⚠️ Warning: No generated sequences found!")
                     except Exception as e:
                         print(f"  ❌ Rollout generation failed: {e}")
-                        import traceback
-                        traceback.print_exc()
-                        raise
+                        print(f"  🔍 Attempting fallback generation method...")
+                        
+                        try:
+                            # Fallback: 直接使用生成接口，跳过rollout
+                            print(f"  🔍 Using direct generation fallback...")
+                            
+                            # 准备输入数据
+                            input_ids = []
+                            for message_log in repeated_batch["message_log"]:
+                                # 合并所有消息的token_ids
+                                sample_tokens = []
+                                for msg in message_log:
+                                    if "token_ids" in msg and len(msg["token_ids"]) > 0:
+                                        sample_tokens.extend(msg["token_ids"].tolist())
+                                
+                                if len(sample_tokens) == 0:
+                                    # 如果序列为空，添加pad token
+                                    sample_tokens = [tokenizer.pad_token_id]
+                                    print(f"  ⚠️ Empty sequence detected, added pad token")
+                                
+                                input_ids.append(sample_tokens)
+                            
+                            # 填充到相同长度
+                            max_len = max(len(ids) for ids in input_ids)
+                            padded_input_ids = []
+                            for ids in input_ids:
+                                if len(ids) < max_len:
+                                    ids.extend([tokenizer.pad_token_id] * (max_len - len(ids)))
+                                padded_input_ids.append(ids)
+                            
+                            # 转换为tensor
+                            input_ids_tensor = torch.tensor(padded_input_ids, dtype=torch.long)
+                            input_lengths_tensor = torch.tensor([len(ids) for ids in input_ids], dtype=torch.long)
+                            
+                            print(f"  🔍 Fallback input shape: {input_ids_tensor.shape}")
+                            
+                            # 直接生成
+                            generation_data = BatchedDataDict[GenerationDatumSpec]({
+                                "input_ids": input_ids_tensor,
+                                "input_lengths": input_lengths_tensor,
+                                "stop_strings": [None] * len(input_ids),
+                            })
+                            
+                            generation_outputs = student_generation.generate(
+                                generation_data, 
+                                greedy=(decoding_method == "greedy")
+                            )
+                            
+                            # 处理生成结果
+                            output_ids = generation_outputs["output_ids"]
+                            generated_sequences = []
+                            
+                            for i in range(len(input_ids)):
+                                input_len = input_lengths_tensor[i].item()
+                                generated_tokens = output_ids[i, input_len:].tolist()
+                                
+                                # 创建assistant消息
+                                assistant_message = {
+                                    "role": "assistant",
+                                    "content": tokenizer.decode(generated_tokens, skip_special_tokens=True),
+                                    "token_ids": torch.tensor(generated_tokens, dtype=torch.long),
+                                }
+                                
+                                # 重建message_log
+                                sample_messages = []
+                                for msg in repeated_batch["message_log"][i]:
+                                    sample_messages.append(msg)
+                                sample_messages.append(assistant_message)
+                                generated_sequences.append(sample_messages)
+                            
+                            print(f"  ✅ Fallback generation successful")
+                            
+                        except Exception as fallback_error:
+                            print(f"  ❌ Fallback generation also failed: {fallback_error}")
+                            import traceback
+                            traceback.print_exc()
+                            raise RuntimeError(f"Both rollout and fallback generation failed. Original error: {e}, Fallback error: {fallback_error}")
                 else:
                     # print(f"  🔍 Using megatron backend, no generation interface...")
                     pass
