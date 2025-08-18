@@ -861,7 +861,7 @@ class DistillationLossFn(LossFunction):
                 teacher_logits = teacher_logits.view(expected_batch_size, expected_seq_len, vocab_size)
                
 
-        kl_type = data.get("kl_type", "forward")  # 默认使用forward KL
+        kl_type = data.get("kl_type", "mixed")  # 默认使用forward KL
         lambda_ = data.get("lambda_", 0.5)        # 默认lambda为0.5
         
 

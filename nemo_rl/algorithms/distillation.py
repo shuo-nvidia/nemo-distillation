@@ -879,39 +879,6 @@ def distillation_train(
                     # print(f"  🔍 Original batch size: {batch.size}, Repeated batch size: {repeated_batch.size}")
                     pass
                     
-                    # 关键修复：检查repeated_batch中所有字段的形状
-                    # print(f"  🔍 Checking repeated_batch field shapes after repeat_interleave...")
-                    pass
-                    for key, value in repeated_batch.items():
-                        if torch.is_tensor(value):
-                            # print(f"  🔍 {key}: {value.shape}")
-                            pass
-                        elif isinstance(value, list):
-                            # print(f"  🔍 {key}: list with {len(value)} items")
-                            pass
-                            if len(value) > 0 and isinstance(value[0], torch.Tensor):
-                                # print(f"  🔍   - First item shape: {value[0].shape}")
-                                pass
-                        else:
-                            # print(f"  🔍 {key}: {type(value)}")
-                            pass
-                    
-                    # 特别检查loss_multiplier的形状
-                    if "loss_multiplier" in repeated_batch:
-                        loss_multiplier = repeated_batch["loss_multiplier"]
-                        #print(f"  🔍 loss_multiplier type: {type(loss_multiplier)}")
-                        if torch.is_tensor(loss_multiplier):
-                            #print(f"  🔍 loss_multiplier shape: {loss_multiplier.shape}")
-                            #print(f"  🔍 loss_multiplier dtype: {loss_multiplier.dtype}")
-                            pass
-                        elif isinstance(loss_multiplier, list):
-                            #print(f"  🔍 loss_multiplier list length: {len(loss_multiplier)}")
-                            if len(loss_multiplier) > 0:
-                                # print(f"  🔍   - First item type: {type(loss_multiplier[0])}")
-                                pass
-                                if isinstance(loss_multiplier[0], torch.Tensor):
-                                    # print(f"  🔍   - First item shape: {loss_multiplier[0].shape}")
-                                    pass
                     
                     # 验证repeated_batch的size是否正确
                     expected_repeated_size = batch.size * num_generations_per_prompt
@@ -1276,14 +1243,21 @@ def distillation_train(
                     
                     print(f"  ✅ All batch dimensions are consistent: {all_batch_sizes[0]}")
                     
-                    train_data = BatchedDataDict[DistillationLossDataDict]({
+                    # 创建训练数据，只包含张量字段
+                    train_data_dict = {
                         "input_ids": flat_messages["token_ids"],
                         "input_lengths": input_lengths,
-                        "advantages": flat_messages["advantages"],
-                        "generation_logprobs": flat_messages["generation_logprobs"],
                         "token_mask": flat_messages["token_loss_mask"],  # 使用token_loss_mask而不是自定义的token_mask
                         "sample_mask": repeated_batch["loss_multiplier"],
-                    })
+                    }
+                    
+                    # 验证所有字段都是张量
+                    for key, value in train_data_dict.items():
+                        if not torch.is_tensor(value):
+                            print(f"  ❌ Critical error: {key} is not a tensor: {type(value)}")
+                            raise ValueError(f"Field {key} must be a tensor, got {type(value)}")
+                    
+                    train_data = BatchedDataDict[DistillationLossDataDict](train_data_dict)
                     print(f"  ✅ Training data prepared")
 
                     
@@ -1622,14 +1596,21 @@ def distillation_train(
                             # 创建正确的训练数据格式
                             # print(f"  🔍 Creating training data for get_logprobs...")
                             pass
-                            train_data_for_logprobs = BatchedDataDict[DistillationLossDataDict]({
+                            # 创建用于获取logprobs的训练数据，只包含张量字段
+                            train_data_for_logprobs_dict = {
                                 "input_ids": input_ids,
                                 "input_lengths": torch.tensor([input_ids.shape[1]] * input_ids.shape[0]),
-                                "advantages": torch.ones(input_ids.shape[0], input_ids.shape[1]),
-                                "generation_logprobs": torch.zeros(input_ids.shape[0], input_ids.shape[1]),
                                 "token_mask": torch.ones(input_ids.shape[0], input_ids.shape[1]),
                                 "sample_mask": torch.ones(input_ids.shape[0]),
-                            })
+                            }
+                            
+                            # 验证所有字段都是张量
+                            for key, value in train_data_for_logprobs_dict.items():
+                                if not torch.is_tensor(value):
+                                    print(f"  ❌ Critical error: {key} is not a tensor: {type(value)}")
+                                    raise ValueError(f"Field {key} must be a tensor, got {type(value)}")
+                            
+                            train_data_for_logprobs = BatchedDataDict[DistillationLossDataDict](train_data_for_logprobs_dict)
                             
                             try:
                                 # 使用get_logprobs方法获取logits
@@ -1752,6 +1733,7 @@ def distillation_train(
                     try:
                         # 使用损失函数计算蒸馏损失 - 修复：传递所有必要的参数
                         # 将蒸馏参数添加到train_data中，供损失函数使用
+                        # 注意：这些是标量值，不是张量，所以不会传递给worker
                         train_data["kl_type"] = kl_type
                         train_data["lambda_"] = lambda_
                         train_data["mixed_kl_weight"] = mixed_kl_weight
@@ -1854,9 +1836,38 @@ def distillation_train(
                     STUDENT_GENERATION_STALE = True  # *** MARK AS STALE AFTER TRAINING ***
                     print(f"  ✅ Student policy prepared for training")
                 
+                # 关键修复：在传递给worker之前，清理训练数据，只保留worker需要的张量字段
+                print("  🔍 Cleaning training data for worker...")
+                
+                # 只保留worker需要的标准张量字段
+                worker_required_fields = ["input_ids", "input_lengths", "token_mask", "sample_mask"]
+                clean_worker_data = {}
+                
+                for field in worker_required_fields:
+                    if field in train_data:
+                        if torch.is_tensor(train_data[field]):
+                            clean_worker_data[field] = train_data[field]
+                            print(f"  ✅ Added {field}: {train_data[field].shape}")
+                        else:
+                            print(f"  ⚠️ Warning: {field} is not a tensor, skipping")
+                    else:
+                        print(f"  ⚠️ Warning: Required field {field} not found in train_data")
+                
+                # 验证清理后的数据
+                if len(clean_worker_data) != len(worker_required_fields):
+                    print(f"  ❌ Critical error: Missing required fields for worker!")
+                    print(f"  🔍 Required: {worker_required_fields}")
+                    print(f"  🔍 Found: {list(clean_worker_data.keys())}")
+                    raise ValueError("Missing required fields for worker")
+                
+                # 创建干净的BatchedDataDict用于worker
+                worker_train_data = BatchedDataDict[DistillationLossDataDict](clean_worker_data)
+                print(f"  ✅ Created clean worker training data with {len(clean_worker_data)} fields")
+                
                 with timer.time("policy_training"):
                     try:
-                        train_results = student_policy.train(train_data, loss_fn)
+                        # 使用清理后的数据传递给worker
+                        train_results = student_policy.train(worker_train_data, loss_fn)
                         print("  ✅ Training completed")
                     except Exception as e:
                         print(f"  ❌ Policy training failed: {e}")
@@ -1900,8 +1911,7 @@ def distillation_train(
                     
                     # 打印训练loss信息
                     print(f"  ✅✅✅ [Training] Step {step}: Loss = {loss.item():.6f}")
-                    if "kl_loss" in loss_metrics:
-                        print(f"  🔍 [Training] KL Loss = {loss_metrics['kl_loss']:.6f}")
+    
                 step += 1
                 distillation_save_state["step"] = step
                 # 使用配置中的值，与GRPO保持一致
