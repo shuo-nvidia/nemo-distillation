@@ -2230,39 +2230,42 @@ def distillation_train(
                 # 创建最终的干净BatchedDataDict
                 final_train_data = BatchedDataDict[DistillationLossDataDict](clean_training_data)
 
-                # 关键修复：将teacher_logits和student_logits重新添加到训练数据中
-                # 这些数据是损失函数计算所必需的
                 if "distillation_teacher_logits_flattened" in distillation_safe_data:
-                    # 重新构建teacher_logits
+                    # 将teacher_logits作为特殊属性存储，不添加到训练数据中
                     flattened_logits = distillation_safe_data["distillation_teacher_logits_flattened"]
                     shape_info = distillation_safe_data["distillation_teacher_logits_flattened_shape"]
                     batch_size, seq_len, vocab_size = shape_info.tolist()
                     
-                    # 重新构建3D张量
-                    teacher_logits = flattened_logits.view(batch_size, seq_len, vocab_size)
-                    final_train_data["teacher_logits"] = teacher_logits
-                    print(f"  ✅ Reconstructed teacher_logits with shape: {teacher_logits.shape}")
+                    # 存储为特殊属性，worker不会检查这些
+                    final_train_data._distillation_teacher_logits = flattened_logits
+                    final_train_data._distillation_teacher_logits_shape = shape_info
+                    print(f"  ✅ Stored teacher_logits as special attribute with shape: {flattened_logits.shape}")
                 else:
                     print(f"  ⚠️ Warning: No teacher_logits found in distillation_safe_data")
                 
                 if "distillation_student_logits_flattened" in distillation_safe_data:
-                    # 重新构建student_logits
+                    # 将student_logits作为特殊属性存储，不添加到训练数据中
                     flattened_logits = distillation_safe_data["distillation_student_logits_flattened"]
                     shape_info = distillation_safe_data["distillation_student_logits_flattened_shape"]
                     batch_size, seq_len, vocab_size = shape_info.tolist()
                     
-                    # 重新构建3D张量
-                    student_logits = flattened_logits.view(batch_size, seq_len, vocab_size)
-                    final_train_data["student_logits"] = student_logits
-                    print(f"  ✅ Reconstructed student_logits with shape: {student_logits.shape}")
+                    # 存储为特殊属性，worker不会检查这些
+                    final_train_data._distillation_student_logits = flattened_logits
+                    final_train_data._distillation_student_logits_shape = shape_info
+                    print(f"  ✅ Stored student_logits as special attribute with shape: {flattened_logits.shape}")
                 else:
                     print(f"  ⚠️ Warning: No student_logits found in distillation_safe_data")
                 
-                # 验证训练数据现在包含logits字段
-                if "teacher_logits" in final_train_data and "student_logits" in final_train_data:
-                    print(f"  ✅ Training data now includes logits fields")
+                # 验证训练数据不包含logits字段，但包含特殊属性
+                if "teacher_logits" not in final_train_data and "student_logits" not in final_train_data:
+                    print(f"  ✅ Training data correctly excludes logits fields")
                 else:
-                    print(f"  ⚠️ Warning: Training data still missing logits fields")
+                    print(f"  ⚠️ Warning: Training data still contains logits fields")
+                
+                if hasattr(final_train_data, '_distillation_teacher_logits') and hasattr(final_train_data, '_distillation_student_logits'):
+                    print(f"  ✅ Training data has logits data as special attributes")
+                else:
+                    print(f"  ⚠️ Warning: Training data missing logits data as special attributes")
                 
                 final_keys = list(final_train_data.keys())
                 print(f"  🔍 Final training data keys: {final_keys}")
