@@ -1452,8 +1452,7 @@ def distillation_train(
                             del teacher_logits_list  # 清理列表
                             
                             print(f"  ✅ Teacher logits computed successfully")
-                            # print(f"  🔍 Teacher logits shape: {teacher_logits.shape}")
-                            pass
+   
                             
                             # 关键修复：验证teacher_logits的形状
                             expected_teacher_shape = (batch_size, teacher_input_ids.shape[1], -1)  # 最后一个维度是vocab_size
@@ -1522,13 +1521,9 @@ def distillation_train(
                             final_shape = teacher_logits.shape
                             if final_shape[0] != batch_size or final_shape[1] != teacher_input_ids.shape[1]:
                                 print(f"  ❌ Critical error: Final teacher_logits shape {final_shape} is still incorrect!")
-                                # print(f"  🔍 Expected: [{batch_size}, {teacher_input_ids.shape[1]}, {final_shape[2]}]")
-                                pass
+        
                                 raise ValueError(f"Failed to fix teacher_logits shape. Final shape: {final_shape}")
                             
-                            # print(f"  🔍 Final teacher_logits shape: {teacher_logits.shape}")
-                            pass
-                            print(f"  ✅ Teacher logits shape validation passed!")
                             
                             # 将教师logits添加到训练数据中
                             train_data["teacher_logits"] = teacher_logits
@@ -1566,15 +1561,10 @@ def distillation_train(
                     # 学生模型前向传播（可训练模型）
                     print("  ✓ Computing student model logits...")
                     try:
-                        # 关键修复：在调用get_logprobs之前，强制检查并修复所有字段的形状
-                        # print(f"  🔍 Final shape validation before calling get_logprobs...")
-                        pass
                         
                         # 检查并修复teacher_logits的形状（如果存在）
                         if "teacher_logits" in train_data:
                             teacher_logits = train_data["teacher_logits"]
-                            # print(f"  🔍 teacher_logits shape before final check: {teacher_logits.shape}")
-                            pass
                             
                             # 如果teacher_logits的形状不正确，强制修复
                             if len(teacher_logits.shape) != 3:
@@ -1585,8 +1575,7 @@ def distillation_train(
                                     vocab_size = teacher_logits.shape[1]
                                     seq_len = train_data["input_ids"].shape[1]
                                     teacher_logits = teacher_logits.unsqueeze(1).expand(-1, seq_len, -1)
-                                    # print(f"  🔍 Fixed teacher_logits shape: {teacher_logits.shape}")
-                                    pass
+          
                                 else:
                                     print(f"  ❌ Critical error: teacher_logits has unexpected shape {teacher_logits.shape}")
                                     raise ValueError(f"teacher_logits has unexpected shape: {teacher_logits.shape}")
@@ -1595,49 +1584,30 @@ def distillation_train(
                             expected_shape = (train_data["input_ids"].shape[0], train_data["input_ids"].shape[1], -1)
                             if teacher_logits.shape[0] != expected_shape[0] or teacher_logits.shape[1] != expected_shape[1]:
                                 print(f"  ❌ Critical error: teacher_logits shape still incorrect after fixing!")
-                                # print(f"  🔍 Expected: {expected_shape}")
-                                pass
-                                # print(f"  🔍 Got: {teacher_logits.shape}")
-                                pass
                                 raise ValueError(f"Failed to fix teacher_logits shape")
                             
                             # 更新train_data中的teacher_logits
                             train_data["teacher_logits"] = teacher_logits
-                            print(f"  ✅ teacher_logits shape validation passed: {teacher_logits.shape}")
-                        
-                        # 关键修复：直接调用学生模型获取logits，而不是使用get_logprobs
-                        # print(f"  🔍 Directly calling student model to get logits...")
-                        pass
+ 
                         
                         # 准备输入数据
                         input_ids = train_data["input_ids"].to("cuda")
                         attention_mask = torch.ones_like(input_ids, dtype=torch.long)
                         position_ids = torch.arange(input_ids.shape[1], device=input_ids.device).unsqueeze(0).expand(input_ids.shape[0], -1)
                         
-                        # print(f"  🔍 Input shapes:")
-                        pass
-                        #print(f"  🔍   input_ids: {input_ids.shape}")
-                        #print(f"  🔍   attention_mask: {attention_mask.shape}")
-                        #print(f"  🔍   position_ids: {position_ids.shape}")
-                        
                         # 直接调用学生模型
                         with torch.no_grad():
                             student_policy.prepare_for_lp_inference()
                             
-                            # 获取系统配置信息
-                            # print(f"  🔍 Getting system configuration...")
-                            pass
                             num_shards = len(student_policy.worker_group.workers)
-                            # print(f"  🔍 Number of shards: {num_shards}")
-                            pass
+
                             
                             # 确保batch size是shards的倍数
                             current_batch_size = input_ids.shape[0]
                             if current_batch_size % num_shards != 0:
                                 # 调整batch size到最近的shards倍数
                                 adjusted_batch_size = ((current_batch_size // num_shards) + 1) * num_shards
-                                # print(f"  🔍 Adjusting batch size from {current_batch_size} to {adjusted_batch_size} to match {num_shards} shards")
-                                pass
+
                                 
                                 # 扩展数据到调整后的batch size
                                 if adjusted_batch_size > current_batch_size:
@@ -1660,11 +1630,6 @@ def distillation_train(
                                 "token_mask": torch.ones(input_ids.shape[0], input_ids.shape[1]),
                                 "sample_mask": torch.ones(input_ids.shape[0]),
                             })
-                            
-                            # print(f"  🔍 Training data created with batch size: {train_data_for_logprobs.size}")
-                            pass
-                            # print(f"  🔍 Calling get_logprobs...")
-                            pass
                             
                             try:
                                 # 使用get_logprobs方法获取logits
@@ -1760,33 +1725,17 @@ def distillation_train(
                                 # print(f"  🔍 Final student logits shape: {student_logits.shape}")
                                 pass
                             
-                            # 应用温度缩放（如果配置了）
-                            try:
-                                # 温度缩放通常在get_logprobs内部处理，这里跳过
-                                # print(f"  🔍 Temperature scaling handled by get_logprobs")
-                                pass
-                            except Exception as e:
-                                # print(f"  🔍 Temperature scaling failed: {e}, using original logits")
-                                pass
                         
                         print(f"  ✅ Student logits computed successfully")
-                        # print(f"  🔍 Student logits shape: {student_logits.shape}")
-                        pass
+
                         
                         # 关键修复：验证student_logits的形状
                         if student_logits.shape[0] != train_data["input_ids"].shape[0]:
                             print(f"  ⚠️ Warning: Student logits batch dimension mismatch!")
-                            # print(f"  🔍 Expected batch size: {train_data['input_ids'].shape[0]}")
-                            pass
-                            # print(f"  🔍 Got batch size: {student_logits.shape[0]}")
-                            pass
                         
                         if student_logits.shape[1] != train_data["input_ids"].shape[1]:
                             print(f"  ⚠️ Warning: Student logits sequence dimension mismatch!")
-                            # print(f"  🔍 Expected seq len: {train_data['input_ids'].shape[1]}")
-                            pass
-                            # print(f"  🔍 Got seq len: {student_logits.shape[1]}")
-                            pass
+  
                         
                     except Exception as e:
                         print(f"  ❌ Failed to compute student logits: {e}")
@@ -1819,65 +1768,6 @@ def distillation_train(
                             # 如果没有token_mask，创建一个默认的（全1，但这不是理想情况）
                             token_mask = torch.ones_like(train_data["input_ids"], dtype=torch.bool)
                             print(f"  ⚠️ Warning: No token_mask found, using all tokens for loss calculation")
-                            print(f"  🔍 This means prompt and response tokens are treated equally!")
-                        
-                        loss, loss_metrics = loss_fn(
-                            student_logits,  # next_token_logits
-                            train_data,      # data
-                            torch.ones(train_data.size, dtype=torch.bool),  # global_valid_seqs
-                            token_mask,      # 使用正确的token mask，而不是全1
-                        )
-                        
-                        print(f"  ✅ Distillation loss computed successfully")
-                        # print(f"  🔍 Total loss: {loss.item():.6f}")
-                        pass
-                        # print(f"  🔍 Loss metrics: {loss_metrics}")
-                        pass
-                        
-                        # 记录损失
-                        if logger is not None:
-                            # 记录主要训练损失
-                            logger.log_metrics({"train/loss": loss.item()}, step)
-                            
-                            # 记录详细的loss指标
-                            for k, v in loss_metrics.items():
-                                if isinstance(v, (int, float)):
-                                    logger.log_metrics({f"train/{k}": v}, step)
-                            
-                            # 记录生成长度相关指标
-                            if "input_ids" in train_data:
-                                input_lengths = (train_data["input_ids"] != 0).sum(dim=1)
-                                avg_input_length = input_lengths.float().mean().item()
-                                max_input_length = input_lengths.max().item()
-                                min_input_length = input_lengths.min().item()
-                                
-                                logger.log_metrics({
-                                    "train/avg_input_length": avg_input_length,
-                                    "train/max_input_length": max_input_length,
-                                    "train/min_input_length": min_input_length,
-                                    "train/input_length_std": input_lengths.float().std().item(),
-                                }, step)
-                            
-                            # 记录当前最佳验证loss（如果可用）
-                            if "val_loss" in distillation_save_state and distillation_save_state["val_loss"] is not None:
-                                current_best_val_loss = distillation_save_state["val_loss"]
-                                logger.log_metrics({"train/best_val_loss": current_best_val_loss}, step)
-                                #print(f"  🔍 [Training] Current Best Val Loss = {current_best_val_loss:.6f}")
-                            
-                            # 记录蒸馏参数
-                            logger.log_metrics({
-                                "train/kl_type": 1.0 if kl_type == "forward" else (2.0 if kl_type == "reverse" else 3.0),
-                                "train/lambda": lambda_,
-                                "train/mixed_kl_weight": mixed_kl_weight,
-                            }, step)
-                            
-                            # 打印训练loss信息
-                            print(f"  ✅✅✅ [Training] Step {step}: Loss = {loss.item():.6f}")
-                            if "kl_loss" in loss_metrics:
-                                print(f"  🔍 [Training] KL Loss = {loss_metrics['kl_loss']:.6f}")
-                            
-                            # 打印蒸馏参数信息
-                            #print(f"  🔍 [Training] KL Type: {kl_type}, Lambda: {lambda_}")
                         
                     except Exception as e:
                         print(f"  ❌ Failed to compute distillation loss: {e}")
@@ -1887,96 +1777,24 @@ def distillation_train(
                 
                 # 5. 训练学生模型（完全按照GRPO模式）
                 print("▶ Training student model...")
-                # print(f"  🔍 student_policy type: {type(student_policy)}")
-                pass
-                
-                # 关键修复：在训练之前检查并修复所有张量的形状
-                # print(f"  🔍 Pre-training shape validation and fixing...")
-                pass
-                for key, value in train_data.items():
-                    if torch.is_tensor(value):
-                        # print(f"  🔍 {key}: {value.shape}")
-                        pass
-                        
-                        # 检查是否有形状问题
-                        if len(value.shape) > 1 and value.shape[1] > 100000:
-                            print(f"  ⚠️ Warning: {key} has suspiciously large sequence dimension: {value.shape[1]}")
-                            # print(f"  🔍 This indicates a shape problem that needs fixing!")
-                            pass
-                            
-                            # 尝试修复形状
-                            if key in ["teacher_logits", "student_logits"]:
-                                expected_batch_size = train_data["input_ids"].shape[0]
-                                expected_seq_len = train_data["input_ids"].shape[1]
-                                
-                                if value.shape[0] == expected_batch_size:
-                                    # 推断vocab_size
-                                    total_elements = value.shape[1]
-                                    if total_elements % expected_seq_len == 0:
-                                        inferred_vocab_size = total_elements // expected_seq_len
-                                        # print(f"  🔍 Inferred vocab_size: {inferred_vocab_size}")
-                                        pass
-                                        
-                                        # 重塑张量
-                                        try:
-                                            fixed_value = value.view(expected_batch_size, expected_seq_len, inferred_vocab_size)
-                                            train_data[key] = fixed_value
-                                            # print(f"  🔍 Successfully fixed {key} shape: {fixed_value.shape}")
-                                            pass
-                                        except Exception as e:
-                                            print(f"  ❌ Failed to fix {key} shape: {e}")
-                                    else:
-                                        print(f"  ❌ Cannot infer correct shape for {key}")
-                                else:
-                                    print(f"  ❌ Batch size mismatch for {key}")
-                        
-                        # 检查sequence维度是否匹配
-                        if len(value.shape) > 1 and value.shape[1] != train_data["input_ids"].shape[1]:
-                            print(f"  ⚠️ Warning: {key} sequence dimension mismatch!")
-                            # print(f"  🔍 Expected: {train_data['input_ids'].shape[1]}, Got: {value.shape[1]}")
-                            pass
-                            
-                            # 尝试修复sequence维度
-                            if value.shape[1] > train_data["input_ids"].shape[1]:
-                                # 截断到正确长度
-                                train_data[key] = value[:, :train_data["input_ids"].shape[1]]
-                                # print(f"  🔍 Fixed {key} by truncating to: {train_data[key].shape}")
-                                pass
-                            else:
-                                # 扩展到正确长度
-                                train_data[key] = value.expand(-1, train_data["input_ids"].shape[1], -1)
-                                # print(f"  🔍 Fixed {key} by expanding to: {train_data[key].shape}")
-                                pass
-                
-                # 最终验证
-                # print(f"  🔍 Final shape validation before training:")
-                pass
-                for key, value in train_data.items():
-                    if torch.is_tensor(value):
-                        # print(f"  🔍   {key}: {value.shape}")
-                        pass
-                
+
                 # 验证所有字段的batch维度一致
                 all_batch_sizes = [train_data[key].shape[0] for key in train_data.keys() if torch.is_tensor(train_data[key])]
                 if len(set(all_batch_sizes)) != 1:
-                    print(f"  ❌ Critical error: Batch dimensions are not consistent!")
+                    #print(f"  ❌ Critical error: Batch dimensions are not consistent!")
                     print(f"  🔍 Batch sizes: {all_batch_sizes}")
                     raise ValueError(f"Batch dimensions must be consistent, got: {all_batch_sizes}")
                 
                 print(f"  ✅ All batch dimensions are consistent: {all_batch_sizes[0]}")
                 
-                # 关键修复：创建蒸馏专用的数据包装器，避免在worker内部进行形状修复
-                # print(f"  🔍 Creating distillation-safe training data...")
-                pass
                 
 
                 distillation_safe_data = {}
                 
                 for key, value in train_data.items():
                     if key in ["teacher_logits", "student_logits"]:
-                        
+                        distillation_safe_data[key] = value
                         if len(value.shape) == 3:
-
                             batch_size, seq_len, vocab_size = value.shape
                             flattened_logits = value.view(batch_size * seq_len, vocab_size)
                             
@@ -2027,251 +1845,8 @@ def distillation_train(
                             batch_sizes[key] = 1
                             print(f"  ⚠️ Warning: Field {key} has unsupported type {type(value)}, setting batch size to 1")
                 
-                # print(f"  🔍 Batch sizes for each field:")
-                pass
-                for key, size in batch_sizes.items():
-                    # print(f"  🔍   {key}: {size}")
-                    pass
                 
-                # 检查batch size是否一致
-                unique_batch_sizes = set(batch_sizes.values())
-                if len(unique_batch_sizes) != 1:
-                    print(f"  ❌ Critical error: Batch sizes are not consistent!")
-                    
-                    standard_fields = ["input_ids", "input_lengths", "advantages", "generation_logprobs", "token_mask", "sample_mask"]
-                    distillation_fields = [k for k in batch_sizes.keys() if k.startswith("distillation_")]
-                    
-                    # 只检查标准字段的batch size一致性
-                    standard_batch_sizes = {k: v for k, v in batch_sizes.items() if k in standard_fields}
-                    distillation_batch_sizes = {k: v for k, v in batch_sizes.items() if k in distillation_fields}
-
-                    
-                    # 检查标准字段的batch size是否一致
-                    unique_standard_batch_sizes = set(standard_batch_sizes.values())
-                    if len(unique_standard_batch_sizes) != 1:
-                        print(f"  ❌ Standard fields have inconsistent batch sizes: {unique_standard_batch_sizes}")
-                        
-                        # 修复标准字段的batch size不一致
-                        target_standard_batch_size = max(unique_standard_batch_sizes)
-                        # print(f"  🔍 Fixing standard fields to batch size: {target_standard_batch_size}")
-                        pass
-                        
-                        for key in standard_fields:
-                            if key in distillation_safe_data:
-                                value = distillation_safe_data[key]
-                                if torch.is_tensor(value):
-                                    current_batch_size = value.shape[0] if len(value.shape) > 0 else 1
-                                    if current_batch_size != target_standard_batch_size:
-                                        # print(f"  🔍 Fixing standard field {key}: {current_batch_size} -> {target_standard_batch_size}")
-                                        pass
-                                        
-                                        if len(value.shape) == 1:
-                                            # 1D张量
-                                            if current_batch_size < target_standard_batch_size:
-                                                repeats = (target_standard_batch_size + current_batch_size - 1) // current_batch_size
-                                                value = value.repeat(repeats)[:target_standard_batch_size]
-                                            else:
-                                                value = value[:target_standard_batch_size]
-                                        elif len(value.shape) == 2:
-                                            # 2D张量
-                                            if current_batch_size < target_standard_batch_size:
-                                                repeats = (target_standard_batch_size + current_batch_size - 1) // current_batch_size
-                                                value = value.repeat(repeats, 1)[:target_standard_batch_size]
-                                            else:
-                                                value = value[:target_standard_batch_size]
-                                        elif len(value.shape) == 3:
-                                            # 3D张量
-                                            if current_batch_size < target_standard_batch_size:
-                                                repeats = (target_standard_batch_size + current_batch_size - 1) // current_batch_size
-                                                value = value.repeat(repeats, 1, 1)[:target_standard_batch_size]
-                                            else:
-                                                value = value[:target_standard_batch_size]
-                                        
-                                        distillation_safe_data[key] = value
-                                        # print(f"  🔍 Fixed {key} shape: {value.shape}")
-                                        pass
-                                else:
-                                    # 安全地获取batch size
-                                    if isinstance(value, (list, tuple)):
-                                        current_batch_size = len(value)
-                                    elif isinstance(value, (int, float)):
-                                        current_batch_size = 1
-                                    else:
-                                        try:
-                                            current_batch_size = len(value)
-                                        except (TypeError, AttributeError):
-                                            current_batch_size = 1
-                                            print(f"  ⚠️ Warning: Cannot determine batch size for field {key} of type {type(value)}")
-                                    
-                                    if current_batch_size != target_standard_batch_size:
-                                        # print(f"  🔍 Fixing standard field {key}: {current_batch_size} -> {target_standard_batch_size}")
-                                        pass
-                                        
-                                        if current_batch_size < target_standard_batch_size:
-                                            if isinstance(value, (list, tuple)):
-                                                repeats = (target_standard_batch_size + current_batch_size - 1) // current_batch_size
-                                                value = (value * repeats)[:target_standard_batch_size]
-                                            else:
-                                                # 对于标量值，创建重复列表
-                                                value = [value] * target_standard_batch_size
-                                        else:
-                                            if isinstance(value, (list, tuple)):
-                                                value = value[:target_standard_batch_size]
-                                            else:
-                                                # 对于标量值，保持不变
-                                                pass
-                                        
-                                        distillation_safe_data[key] = value
-                                        # print(f"  🔍 Fixed {key} length: {len(value) if hasattr(value, '__len__') else 'scalar'}")
-                                        pass
-                    else:
-                        print(f"  ✅ Standard fields have consistent batch size: {unique_standard_batch_sizes.pop()}")
-                    
-                    # 蒸馏字段的batch size可以不同，这是正常的
-                    if len(distillation_batch_sizes) > 0:
-                        print(f"  ℹ️ Distillation fields have different batch sizes (this is normal):")
-                        for key, size in distillation_batch_sizes.items():
-                            print(f"  ℹ️   {key}: {size}")
-                    
-                    # 重新检查标准字段的batch size一致性
-                    # print(f"  🔍 Re-checking standard field batch size consistency after fixes...")
-                    pass
-                    standard_batch_sizes_after_fix = {}
-                    for key in standard_fields:
-                        if key in distillation_safe_data:
-                            value = distillation_safe_data[key]
-                            if torch.is_tensor(value):
-                                if len(value.shape) > 0:
-                                    standard_batch_sizes_after_fix[key] = value.shape[0]
-                                else:
-                                    standard_batch_sizes_after_fix[key] = 1
-                            else:
-                                standard_batch_sizes_after_fix[key] = len(value)
-                    
-                    unique_standard_batch_sizes_after_fix = set(standard_batch_sizes_after_fix.values())
-                    if len(unique_standard_batch_sizes_after_fix) == 1:
-                        print(f"  ✅ Standard field batch size consistency fixed: {unique_standard_batch_sizes_after_fix.pop()}")
-                    else:
-                        print(f"  ❌ Failed to fix standard field batch size consistency!")
-                        # print(f"  🔍 Remaining unique standard field batch sizes: {unique_standard_batch_sizes_after_fix}")
-                        pass
-                        raise ValueError(f"Could not fix standard field batch size inconsistencies: {unique_standard_batch_sizes_after_fix}")
-                else:
-                    print(f"  ✅ All fields have consistent batch size: {unique_batch_sizes.pop()}")
                 
-                # 验证必需字段
-                required_fields = ["input_ids", "input_lengths", "token_mask", "sample_mask"]
-                missing_fields = [field for field in required_fields if field not in distillation_safe_data]
-                if missing_fields:
-                    print(f"  ❌ Critical error: Missing required fields: {missing_fields}")
-                    raise ValueError(f"Missing required fields: {missing_fields}")
-                
-                print(f"  ✅ All required fields present in distillation-safe data")
-                
-                # 使用安全数据进行训练 - 关键修复：保持BatchedDataDict类型
-                # print(f"  🔍 Converting distillation-safe data back to BatchedDataDict...")
-                pass
-                
-                # 创建新的BatchedDataDict，保持原始类型
-                train_data = BatchedDataDict[DistillationLossDataDict](distillation_safe_data)
-                
-                # print(f"  🔍 Final train_data type: {type(train_data)}")
-                pass
-                # print(f"  🔍 Final train_data keys: {list(train_data.keys())}")
-                pass
-                
-                # 最终验证：确保BatchedDataDict有正确的方法
-                if not hasattr(train_data, 'shard_by_batch_size'):
-                    print(f"  ❌ Critical error: train_data does not have shard_by_batch_size method!")
-                    # print(f"  🔍 train_data type: {type(train_data)}")
-                    pass
-                    # print(f"  🔍 train_data methods: {[method for method in dir(train_data) if not method.startswith('_')]}")
-                    pass
-                    raise ValueError("train_data must be a proper BatchedDataDict with shard_by_batch_size method")
-                
-                # 只保留标准训练字段
-                standard_fields = ["input_ids", "input_lengths", "advantages", "generation_logprobs", "token_mask", "sample_mask"]
-                clean_training_data = {}
-                
-                for field in standard_fields:
-                    if field in train_data:
-                        clean_training_data[field] = train_data[field]
-                        # print(f"  🔍 Added {field}: {train_data[field].shape if torch.is_tensor(train_data[field]) else len(train_data[field])}")
-                        pass
-                    else:
-                        print(f"  ⚠️ Warning: Required field {field} not found in train_data!")
-                
-                # 验证干净数据的batch size一致性
-                # print(f"  🔍 Verifying clean training data batch size consistency...")
-                pass
-                clean_batch_sizes = {}
-                for key, value in clean_training_data.items():
-                    if torch.is_tensor(value):
-                        if len(value.shape) > 0:
-                            clean_batch_sizes[key] = value.shape[0]
-                        else:
-                            clean_batch_sizes[key] = 1
-                    else:
-                        clean_batch_sizes[key] = len(value)
-                
-                # print(f"  🔍 Clean training data batch sizes:")
-                pass
-                for key, size in clean_batch_sizes.items():
-                    # print(f"  🔍   {key}: {size}")
-                    pass
-                
-                unique_clean_batch_sizes = set(clean_batch_sizes.values())
-                if len(unique_clean_batch_sizes) == 1:
-                    print(f"  ✅ Clean training data has consistent batch size: {unique_clean_batch_sizes.pop()}")
-                else:
-                    print(f"  ❌ Clean training data still has inconsistent batch sizes: {unique_clean_batch_sizes}")
-                    raise ValueError(f"Clean training data batch sizes are not consistent: {unique_clean_batch_sizes}")
-                
-                # 创建最终的干净BatchedDataDict
-                final_train_data = BatchedDataDict[DistillationLossDataDict](clean_training_data)
-
-                if "distillation_teacher_logits_flattened" in distillation_safe_data:
-                    # 将teacher_logits作为特殊属性存储，不添加到训练数据中
-                    flattened_logits = distillation_safe_data["distillation_teacher_logits_flattened"]
-                    shape_info = distillation_safe_data["distillation_teacher_logits_flattened_shape"]
-                    batch_size, seq_len, vocab_size = shape_info.tolist()
-                    
-                    # 存储为特殊属性，worker不会检查这些
-                    final_train_data._distillation_teacher_logits = flattened_logits
-                    final_train_data._distillation_teacher_logits_shape = shape_info
-                    print(f"  ✅ Stored teacher_logits as special attribute with shape: {flattened_logits.shape}")
-                else:
-                    print(f"  ⚠️ Warning: No teacher_logits found in distillation_safe_data")
-                
-                if "distillation_student_logits_flattened" in distillation_safe_data:
-                    # 将student_logits作为特殊属性存储，不添加到训练数据中
-                    flattened_logits = distillation_safe_data["distillation_student_logits_flattened"]
-                    shape_info = distillation_safe_data["distillation_student_logits_flattened_shape"]
-                    batch_size, seq_len, vocab_size = shape_info.tolist()
-                    
-                    # 存储为特殊属性，worker不会检查这些
-                    final_train_data._distillation_student_logits = flattened_logits
-                    final_train_data._distillation_student_logits_shape = shape_info
-                    print(f"  ✅ Stored student_logits as special attribute with shape: {flattened_logits.shape}")
-                else:
-                    print(f"  ⚠️ Warning: No student_logits found in distillation_safe_data")
-                
-                # 验证训练数据不包含logits字段，但包含特殊属性
-                if "teacher_logits" not in final_train_data and "student_logits" not in final_train_data:
-                    print(f"  ✅ Training data correctly excludes logits fields")
-                else:
-                    print(f"  ⚠️ Warning: Training data still contains logits fields")
-                
-                if hasattr(final_train_data, '_distillation_teacher_logits') and hasattr(final_train_data, '_distillation_student_logits'):
-                    print(f"  ✅ Training data has logits data as special attributes")
-                else:
-                    print(f"  ⚠️ Warning: Training data missing logits data as special attributes")
-                
-                final_keys = list(final_train_data.keys())
-                print(f"  🔍 Final training data keys: {final_keys}")
-                
-                # 使用干净的训练数据
-                train_data = final_train_data
                 
                 with timer.time("training_prep"):
 
@@ -2288,10 +1863,45 @@ def distillation_train(
                         import traceback
                         traceback.print_exc()
                         raise
-                
-                # 6. 更新状态
-                # print(f"  🔍 Updating training state...")
-                pass
+                loss=train_results["loss"].numpy()
+                #grad_norm=train_results["grad_norm"].numpy()
+                print(f"  ✅ Distillation loss computed successfully")
+                # 记录损失
+                if logger is not None:
+                    # 记录主要训练损失
+                    logger.log_metrics({"train/loss": loss.item()}, step)
+                    
+                    # 记录生成长度相关指标
+                    if "input_ids" in train_data:
+                        input_lengths = (train_data["input_ids"] != 0).sum(dim=1)
+                        avg_input_length = input_lengths.float().mean().item()
+                        max_input_length = input_lengths.max().item()
+                        min_input_length = input_lengths.min().item()
+                        
+                        logger.log_metrics({
+                            "train/avg_input_length": avg_input_length,
+                            "train/max_input_length": max_input_length,
+                            "train/min_input_length": min_input_length,
+                            "train/input_length_std": input_lengths.float().std().item(),
+                        }, step)
+                    
+                    # 记录当前最佳验证loss（如果可用）
+                    if "val_loss" in distillation_save_state and distillation_save_state["val_loss"] is not None:
+                        current_best_val_loss = distillation_save_state["val_loss"]
+                        logger.log_metrics({"train/best_val_loss": current_best_val_loss}, step)
+                        #print(f"  🔍 [Training] Current Best Val Loss = {current_best_val_loss:.6f}")
+                    
+                    # 记录蒸馏参数
+                    logger.log_metrics({
+                        "train/kl_type": 1.0 if kl_type == "forward" else (2.0 if kl_type == "reverse" else 3.0),
+                        "train/lambda": lambda_,
+                        "train/mixed_kl_weight": mixed_kl_weight,
+                    }, step)
+                    
+                    # 打印训练loss信息
+                    print(f"  ✅✅✅ [Training] Step {step}: Loss = {loss.item():.6f}")
+                    if "kl_loss" in loss_metrics:
+                        print(f"  🔍 [Training] KL Loss = {loss_metrics['kl_loss']:.6f}")
                 step += 1
                 distillation_save_state["step"] = step
                 # 使用配置中的值，与GRPO保持一致

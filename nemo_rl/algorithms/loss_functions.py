@@ -822,68 +822,7 @@ class DistillationLossFn(LossFunction):
         
         if "teacher_logits" in data:
             teacher_logits = data["teacher_logits"]
-            print(f"  🔍 [DistillationLossFn] Found teacher_logits in data: {teacher_logits.shape}")
-        
-        # 方法2：尝试从各种可能的来源恢复teacher_logits
-        if teacher_logits is None:
-            print(f"  🔍 [DistillationLossFn] Teacher logits not found in data, attempting to recover...")
-            
-            # 1. 尝试从属性中恢复
-            if hasattr(data, 'distillation_teacher_logits') and hasattr(data, 'distillation_teacher_logits_shape'):
-                print(f"  🔍 [DistillationLossFn] Found distillation data in attributes!")
-                
-                teacher_logits_flattened = data.distillation_teacher_logits
-                teacher_logits_shape = data.distillation_teacher_logits_shape
-                
-                if (teacher_logits_flattened is not None and teacher_logits_shape is not None and
-                    len(teacher_logits_shape.shape) == 1 and teacher_logits_shape.shape[0] == 3):
-                    
-                    batch_size, seq_len, vocab_size = teacher_logits_shape.tolist()
-                    teacher_logits = teacher_logits_flattened.view(batch_size, seq_len, vocab_size)
-                    print(f"  🔍 [DistillationLossFn] Recovered teacher_logits from attributes: {teacher_logits.shape}")
-                else:
-                    print(f"  ⚠️ [DistillationLossFn] Failed to recover teacher_logits from attributes")
-                    teacher_logits = None
-            
-            # 2. 尝试从特殊字段中恢复
-            if teacher_logits is None:
-                _teacher_key = "_distillation_teacher_logits"
-                _teacher_shape_key = "_distillation_teacher_logits_shape"
-                
-                if _teacher_key in data and _teacher_shape_key in data:
-                    print(f"  🔍 [DistillationLossFn] Found distillation data in _ fields!")
-                    
-                    teacher_logits_flattened = data[_teacher_key]
-                    teacher_logits_shape = data[_teacher_shape_key]
-                    
-                    if (teacher_logits_flattened is not None and teacher_logits_shape is not None and
-                        len(teacher_logits_shape.shape) == 1 and teacher_logits_shape.shape[0] == 3):
-                        
-                        batch_size, seq_len, vocab_size = teacher_logits_shape.tolist()
-                        teacher_logits = teacher_logits_flattened.view(batch_size, seq_len, vocab_size)
-                        #print(f"  🔍 [DistillationLossFn] Recovered teacher_logits from _ fields: {teacher_logits.shape}")
-                    else:
-                        #print(f"  ⚠️ [DistillationLossFn] Failed to recover teacher_logits from _ fields")
-                        teacher_logits = None
-            
-            if teacher_logits is None:
-                distillation_teacher_key = "distillation_teacher_logits_flattened"
-                distillation_teacher_shape_key = "distillation_teacher_logits_flattened_shape"
-                
-                if distillation_teacher_key in data and distillation_teacher_shape_key in data:
-                   
-                    
-                    teacher_logits_flattened = data[distillation_teacher_key]
-                    teacher_logits_shape = data[distillation_teacher_shape_key]
-                    
-                    if (teacher_logits_flattened is not None and teacher_logits_shape is not None and
-                        len(teacher_logits_shape.shape) == 1 and teacher_logits_shape.shape[0] == 3):
-                        
-                        batch_size, seq_len, vocab_size = teacher_logits_shape.tolist()
-                        teacher_logits = teacher_logits_flattened.view(batch_size, seq_len, vocab_size)
-                       
-                    else:
-                        teacher_logits = None
+
 
         if teacher_logits is None:
             print(f"  ❌ [DistillationLossFn] Missing teacher_logits!")
