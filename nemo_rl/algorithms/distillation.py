@@ -1811,6 +1811,8 @@ def distillation_train(
                 with timer.time("policy_training"):
                     try:
                         # 使用清理后的数据传递给worker
+                        print(worker_train_data["teacher_logits"].shape)
+                        assert 0==1
                         train_results = student_policy.train(worker_train_data, loss_fn)
                         print("  ✅ Training completed")
                     except Exception as e:

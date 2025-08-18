@@ -822,7 +822,7 @@ class DistillationLossFn(LossFunction):
         
         if "teacher_logits" in data:
             teacher_logits = data["teacher_logits"]
-        print("**************************teacher_probs.shape:", teacher_probs.shape)
+       
 
         if teacher_logits is None:
             print(f"  ❌ [DistillationLossFn] Missing teacher_logits!")
@@ -854,7 +854,7 @@ class DistillationLossFn(LossFunction):
 
         student_probs = torch.softmax(student_logits, dim=-1)
         teacher_probs = torch.softmax(teacher_logits, dim=-1)
-        print("==================teacher_probs.shape:", teacher_probs.shape)
+        
         # 避免log(0)
         epsilon = 1e-8
         student_probs = torch.clamp(student_probs, epsilon, 1.0 - epsilon)
@@ -870,8 +870,7 @@ class DistillationLossFn(LossFunction):
         elif kl_type == "mixed":
             # 混合KL: 使用可配置的权重
             mixed_weight = data.get("mixed_kl_weight", 0.5)  # 从配置中获取权重
-            print("----------------teacher_probs.shape:", teacher_probs.shape)
-            print("----------------student_probs.shape:", student_probs.shape)
+    
             kl_forward = torch.sum(teacher_probs * torch.log(teacher_probs / student_probs), dim=-1)
             kl_reverse = torch.sum(student_probs * torch.log(student_probs / teacher_probs), dim=-1)
             kl_loss = mixed_weight * kl_forward + (1.0 - mixed_weight) * kl_reverse
