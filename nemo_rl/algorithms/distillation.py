@@ -862,7 +862,7 @@ def distillation_train(
                             )
                     
                     # 创建虚拟环境实例
-                    distillation_env = DistillationVirtualEnvironment.remote()
+                    distillation_env = DistillationStaticEnvironment()
                     distillation_task_env = {"math": distillation_env}
                     
                     #print(f"  🔍 Created Ray actor virtual distillation environment")
