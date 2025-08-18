@@ -1609,70 +1609,13 @@ def distillation_train(
                                     print(f"  ❌ Critical error: {key} is not a tensor: {type(value)}")
                                     raise ValueError(f"Field {key} must be a tensor, got {type(value)}")
                             
-                            train_data_for_logprobs = BatchedDataDict[DistillationLossDataDict](train_data_for_logprobs_dict)
-                            
-                            try:
-                                # 使用get_logprobs方法获取logits
-                                result = student_policy.get_logprobs(train_data_for_logprobs)
-                                
-                                # 尝试获取logits
-                                if "logits" in result:
-                                    student_logits = result["logits"]
- 
-                                elif "logprobs" in result:
-                                    logprobs = result["logprobs"]
-
-                                    student_logits = logprobs.unsqueeze(-1).expand(-1, -1, 151936)  # 假设vocab_size=151936
-                                else:
-                                    raise ValueError(f"Neither 'logits' nor 'logprobs' found in result: {list(result.keys())}")
-                                
-                            except Exception as e:
-                                
-                                # 如果get_logprobs失败，尝试直接访问模型
-                                try:
-                                    first_worker = student_policy.worker_group.workers[0]
-                                    worker_attrs = dir(first_worker)
-                                    # 直接调用方法，不使用.remote()
-                                    worker_result = first_worker.get_logprobs(train_data_for_logprobs)
-                                    
-                                    # 处理worker结果
-                                    if "logits" in worker_result:
-                                        student_logits = worker_result["logits"]
-                                    elif "logprobs" in worker_result:
-                                        logprobs = worker_result["logprobs"]
-                                        student_logits = logprobs.unsqueeze(-1).expand(-1, -1, 151936)
-                                    else:
-                                        raise ValueError(f"Worker result missing logits/logprobs: {list(worker_result.keys())}")
-                                        
-                                except Exception as e2:
-                                    raise RuntimeError(f"All approaches to get student logits failed: {e2}")
-                            
-                            # 如果batch size被调整了，恢复到原始大小
-                            if student_logits.shape[0] > current_batch_size:
-                                student_logits = student_logits[:current_batch_size]
-
-                        
-                        print(f"  ✅ Student logits computed successfully")
-
-                        
-                        # 关键修复：验证student_logits的形状
-                        if student_logits.shape[0] != train_data["input_ids"].shape[0]:
-                            print(f"  ⚠️ Warning: Student logits batch dimension mismatch!")
-                        
-                        if student_logits.shape[1] != train_data["input_ids"].shape[1]:
-                            print(f"  ⚠️ Warning: Student logits sequence dimension mismatch!")
-  
-                        
+                           
                     except Exception as e:
-                        print(f"  ❌ Failed to compute student logits: {e}")
+                        print(f"  ❌ Failed to fix teacher logits: {e}")
                         import traceback
                         traceback.print_exc()
                         raise
-                    
-                    # 将学生logits添加到训练数据中
-                    train_data["student_logits"] = student_logits
-                    print(f"  ✅ Student logits added to training data")
-                    
+               
                     # 计算蒸馏损失
                     print("  ✓ Computing distillation loss...")
                     try:
@@ -1719,7 +1662,7 @@ def distillation_train(
                 distillation_safe_data = {}
                 
                 for key, value in train_data.items():
-                    if key in ["teacher_logits", "student_logits"]:
+                    if key in ["teacher_logits"]:
                         distillation_safe_data[key] = value
                         if len(value.shape) == 3:
                             batch_size, seq_len, vocab_size = value.shape
@@ -1785,7 +1728,7 @@ def distillation_train(
                 print("  🔍 Cleaning training data for worker...")
                 
                 # 只保留worker需要的标准张量字段
-                worker_required_fields = ["input_ids", "input_lengths", "token_mask", "sample_mask", "teacher_logits", "student_logits"]
+                worker_required_fields = ["input_ids", "input_lengths", "token_mask", "sample_mask", "teacher_logits"]
                 clean_worker_data = {}
                 
                 for field in worker_required_fields:
@@ -1811,8 +1754,6 @@ def distillation_train(
                 with timer.time("policy_training"):
                     try:
                         # 使用清理后的数据传递给worker
-                        print(worker_train_data["teacher_logits"].shape)
-                        assert 0==1
                         train_results = student_policy.train(worker_train_data, loss_fn)
                         print("  ✅ Training completed")
                     except Exception as e:
