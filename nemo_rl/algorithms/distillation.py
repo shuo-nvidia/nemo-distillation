@@ -1683,8 +1683,8 @@ def distillation_train(
                                     logger.log_metrics({f"train/{k}": v}, step)
                             
                             # 记录生成长度相关指标
-                            if "input_ids" in data:
-                                input_lengths = (data["input_ids"] != 0).sum(dim=1)
+                            if "input_ids" in train_data:
+                                input_lengths = (train_data["input_ids"] != 0).sum(dim=1)
                                 avg_input_length = input_lengths.float().mean().item()
                                 max_input_length = input_lengths.max().item()
                                 min_input_length = input_lengths.min().item()
