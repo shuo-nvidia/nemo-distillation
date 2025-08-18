@@ -843,26 +843,20 @@ def distillation_train(
                     import torch
                     from nemo_rl.models.generation.interfaces import GenerationDatumSpec
                     
-                    # 性能优化：使用简单的静态环境，避免Ray actor开销
-                    class DistillationStaticEnvironment:
-                        """静态环境，用于蒸馏任务，避免Ray actor和复杂计算开销"""
-                        
-                        def step(self, messages, env_info):
-                            """静态step方法，返回默认奖励"""
-                            batch_size = len(messages)
-                            
-                            # 直接返回预计算的结果，避免循环和打印
-                            return (
-                                [{"role": "assistant", "content": ""} for _ in range(batch_size)],  # env_observations
-                                [{} for _ in range(batch_size)],                                   # metadata
-                                [None for _ in range(batch_size)],                                 # next_stop_strings
-                                [0.0 for _ in range(batch_size)],                                 # task_rewards
-                                [True for _ in range(batch_size)],                                # terminateds
-                                [None for _ in range(batch_size)],                                # answers
-                            )
+
                     
-                    # 创建虚拟环境实例
-                    distillation_env = DistillationStaticEnvironment()
+                    # 创建Ray remote环境实例，与GRPO保持一致
+                    from nemo_rl.environments.math_environment import MathEnvironment
+                    from nemo_rl.distributed.ray_actor_environment_registry import get_actor_python_env
+                    
+                    distillation_env = MathEnvironment.options(
+                        runtime_env={
+                            "py_executable": get_actor_python_env(
+                                "nemo_rl.environments.math_environment.MathEnvironment"
+                            ),
+                            "env_vars": dict(os.environ),
+                        }
+                    ).remote(env_configs["math"])
                     distillation_task_env = {"math": distillation_env}
                     
                     #print(f"  🔍 Created Ray actor virtual distillation environment")
@@ -974,36 +968,10 @@ def distillation_train(
                         # 从rollout结果中提取生成的序列
                         generated_sequences = generated_batch["message_log"]
                         print(f"  ✅ Successfully generated responses via rollout")
-                        #print(f"  🔍 Generated sequences type: {type(generated_sequences)}")
-                        #print(f"  🔍 Generated sequences length: {len(generated_sequences)}")
-                        
-                        # 关键修复：检查rollout后repeated_batch是否被修改
-                        # print(f"  🔍 Checking repeated_batch after rollout...")
-                        pass
+  
                         if "loss_multiplier" in repeated_batch:
                             loss_multiplier_after = repeated_batch["loss_multiplier"]
-                            # print(f"  🔍 loss_multiplier after rollout type: {type(loss_multiplier_after)}")
-                            pass
-                            if torch.is_tensor(loss_multiplier_after):
-                                # print(f"  🔍 loss_multiplier after rollout shape: {loss_multiplier_after.shape}")
-                                pass
-                            elif isinstance(loss_multiplier_after, list):
-                                # print(f"  🔍 loss_multiplier after rollout list length: {len(loss_multiplier_after)}")
-                                pass
                         
-                        # 添加调试信息：检查生成序列的结构
-                        if len(generated_sequences) > 0:
-                            #print(f"  🔍 First sequence type: {type(generated_sequences[0])}")
-                            #print(f"  🔍 First sequence length: {len(generated_sequences[0])}")
-                            if len(generated_sequences[0]) > 0:
-                                #print(f"  🔍 First message keys: {list(generated_sequences[0][0].keys())}")
-                                if "token_ids" in generated_sequences[0][0]:
-                                    # print(f"  🔍 First message token_ids shape: {generated_sequences[0][0]['token_ids'].shape}")
-                                    pass
-                                    # print(f"  🔍 First message token_ids length: {len(generated_sequences[0][0]['token_ids'])}")
-                                    pass
-                        else:
-                            print(f"  ⚠️ Warning: No generated sequences found!")
                     except Exception as e:
                         print(f"  ❌ Rollout generation failed: {e}")
                         print(f"  🔍 Attempting fallback generation method...")
@@ -1137,9 +1105,7 @@ def distillation_train(
                             ),
                         )
                         print(f"  ✅ Successfully converted generated sequences to flat format")
-                        #print(f"  🔍 flat_messages keys: {list(flat_messages.keys())}")
-                        #print(f"  🔍 input_lengths shape: {input_lengths.shape}")
-                        #print(f"  🔍 token_ids shape: {flat_messages['token_ids'].shape}")
+
                     except Exception as e:
                         print(f"  ❌ Failed to convert generated sequences to flat format: {e}")
                         import traceback
@@ -1188,19 +1154,7 @@ def distillation_train(
                         flat_messages["token_loss_mask"] = token_loss_mask
                         print(f"  🔍 Created distillation token_loss_mask: {token_loss_mask.sum().item()} response tokens out of {token_loss_mask.numel()} total tokens")
                     
-                    # 创建与GRPO完全一致的train_data结构
-                    # print(f"  🔍 Creating train_data with detailed shape validation...")
-                    pass
-                    
-                    # 详细检查每个字段的形状
-                    #print(f"  🔍 flat_messages['token_ids'] shape: {flat_messages['token_ids'].shape}")
-                    #print(f"  🔍 input_lengths shape: {input_lengths.shape}")
-                    #print(f"  🔍 flat_messages['advantages'] shape: {flat_messages['advantages'].shape}")
-                    #print(f"  🔍 flat_messages['generation_logprobs'] shape: {flat_messages['generation_logprobs'].shape}")
-                    # print(f"  🔍 flat_messages['token_loss_mask'] shape: {flat_messages['token_loss_mask'].shape}")
-                    pass
-                    # print(f"  🔍 repeated_batch['loss_multiplier'] shape: {repeated_batch['loss_multiplier'].shape}")
-                    pass
+
                     
                     # 验证所有字段的batch维度一致
                     expected_batch_size = flat_messages['token_ids'].shape[0]
@@ -1278,16 +1232,7 @@ def distillation_train(
                         repeated_batch["loss_multiplier"] = torch.tensor(repeated_batch["loss_multiplier"][:expected_batch_size], dtype=torch.float32)
                         # print(f"  🔍 Converted loss_multiplier shape: {repeated_batch['loss_multiplier'].shape}")
                         pass
-                    
-                    # 最终验证所有字段的形状
-                    # print(f"  🔍 Final validation before creating train_data:")
-                    pass
-                    #print(f"  🔍   - token_ids: {flat_messages['token_ids'].shape}")
-                    #print(f"  🔍   - input_lengths: {input_lengths.shape}")
-                    #print(f"  🔍   - advantages: {flat_messages['advantages'].shape}")
-                    #print(f"  🔍   - generation_logprobs: {flat_messages['generation_logprobs'].shape}")
-                    #print(f"  🔍   - token_loss_mask: {flat_messages['token_loss_mask'].shape}")
-                    #print(f"  🔍   - loss_multiplier: {repeated_batch['loss_multiplier'].shape}")
+
                     
                     # 最终验证loss_multiplier的类型和形状
                     if not isinstance(repeated_batch["loss_multiplier"], torch.Tensor):
@@ -1371,13 +1316,7 @@ def distillation_train(
                                         low_cpu_mem_usage=True,  # 减少CPU内存使用
                                     )
                                     
-                                    # 验证模型配置
-                                    #print(f"  🔍 Teacher model config:")
-                                    #print(f"  🔍   - Model type: {type(teacher_model).__name__}")
-                                    #print(f"  🔍   - Vocab size: {teacher_model.config.vocab_size}")
-                                    #print(f"  🔍   - Hidden size: {teacher_model.config.hidden_size}")
-                                    #print(f"  🔍   - Max position embeddings: {getattr(teacher_model.config, 'max_position_embeddings', 'N/A')}")
-                                    
+      
                                     # 检查模型是否在正确的设备上
                                     if hasattr(teacher_model, 'device'):
                                         # print(f"  🔍   - Device: {teacher_model.device}")
@@ -1402,11 +1341,7 @@ def distillation_train(
                                         with torch.no_grad():
                                             test_output = teacher_model(test_input)
                                             test_logits = test_output.logits
-                                            #print(f"  🔍 Test forward pass successful:")
-                                            #print(f"  🔍   - Input shape: {test_input.shape}")
-                                            #print(f"  🔍   - Output logits shape: {test_logits.shape}")
-                                            #print(f"  🔍   - Expected shape: [1, 10, {teacher_model.config.vocab_size}]")
-                                            
+                               
                                             if test_logits.shape != (1, 10, teacher_model.config.vocab_size):
                                                 print(f"  ⚠️ Warning: Test logits shape is incorrect!")
                                                 # print(f"  🔍 This might indicate a problem with the model configuration")
@@ -1427,23 +1362,10 @@ def distillation_train(
                                     raise
                             else:
                                 teacher_model = student_policy._teacher_model
-                                # print(f"  🔍 Using cached teacher model")
-                                pass
-                                #print(f"  🔍 Cached model type: {type(teacher_model).__name__}")
-                            
-                            # 使用教师模型计算logits
-                            # print(f"  🔍 Computing teacher logits...")
-                            pass
+
                             teacher_input_ids = train_data["input_ids"]
                             
-                            # 关键修复：确保输入数据形状正确
-                            # print(f"  🔍 Teacher input_ids shape: {teacher_input_ids.shape}")
-                            pass
-                            #print(f"  🔍 Expected shape: [batch_size, seq_len]")
-                            
-                            # 添加一个简单的测试，确保我们理解问题
-                            # print(f"  🔍 Testing with a simple input first...")
-                            pass
+
                             try:
                                 test_input = torch.randint(0, 1000, (2, 5), device=next(teacher_model.parameters()).device)
                                 # print(f"  🔍 Test input shape: {test_input.shape}")
@@ -1452,9 +1374,7 @@ def distillation_train(
                                 with torch.no_grad():
                                     test_output = teacher_model(test_input)
                                     test_logits = test_output.logits
-                                    #print(f"  🔍 Test output logits shape: {test_logits.shape}")
-                                    #print(f"  🔍 Expected shape: [2, 5, vocab_size]")
-                                    
+
                                     if len(test_logits.shape) != 3:
                                         print(f"  ❌ Critical error: Test logits has wrong number of dimensions!")
                                         # print(f"  🔍 This indicates a fundamental problem with the teacher model")
@@ -1513,23 +1433,6 @@ def distillation_train(
                                     )
                                     chunk_logits = chunk_outputs.logits
                                     
-                                    # 关键调试：检查chunk_logits的形状
-                                    #print(f"  🔍 Chunk {i//chunk_size + 1}: chunk_logits shape: {chunk_logits.shape}")
-                                    #print(f"  🔍 Chunk {i//chunk_size + 1}: chunk_input_ids shape: {chunk_input_ids.shape}")
-                                    #print(f"  🔍 Chunk {i//chunk_size + 1}: attention_mask shape: {attention_mask.shape}")
-                                    
-                                    # 验证chunk_logits的形状
-                                    if len(chunk_logits.shape) != 3:
-                                        print(f"  ⚠️ Warning: Chunk logits has wrong shape: {chunk_logits.shape}")
-                                        #print(f"  🔍 Expected: [batch_size, seq_len, vocab_size]")
-                                        #print(f"  🔍 This might indicate a problem with the teacher model configuration")
-                                    
-                                    # 确保chunk_logits的形状正确
-                                    if chunk_logits.shape[0] != chunk_batch_size or chunk_logits.shape[1] != chunk_seq_len:
-                                        print(f"  ⚠️ Warning: Chunk logits shape mismatch with input!")
-                                        #print(f"  🔍 Expected: [{chunk_batch_size}, {chunk_seq_len}, vocab_size]")
-                                        #print(f"  🔍 Got: {chunk_logits.shape}")
-                                    
                                     teacher_logits_list.append(chunk_logits.cpu())  # 移到CPU节省GPU内存
                                 
                                 # 清理GPU内存
@@ -1547,21 +1450,17 @@ def distillation_train(
                             
                             # 关键修复：验证teacher_logits的形状
                             expected_teacher_shape = (batch_size, teacher_input_ids.shape[1], -1)  # 最后一个维度是vocab_size
-                            # print(f"  🔍 Expected teacher logits shape: {expected_teacher_shape}")
-                            pass
+                          
                             
                             # 检查并修复teacher_logits的形状
                             if len(teacher_logits.shape) != 3:
                                 print(f"  ⚠️ Warning: Teacher logits has wrong number of dimensions!")
-                                # print(f"  🔍 Expected 3 dimensions, got {len(teacher_logits.shape)}")
-                                pass
+                                
                                 
                                 # 如果teacher_logits是2D的，尝试重塑为3D
                                 if len(teacher_logits.shape) == 2:
                                     # 检查是否是[batch_size, vocab_size]的情况
                                     if teacher_logits.shape[0] == batch_size and teacher_logits.shape[1] > 1000:  # 假设vocab_size > 1000
-                                        # print(f"  🔍 Reshaping teacher_logits from 2D to 3D...")
-                                        pass
                                         # 假设每个序列都是相同长度，从input_ids获取
                                         seq_len = teacher_input_ids.shape[1]
                                         vocab_size = teacher_logits.shape[1]
