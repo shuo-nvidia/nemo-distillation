@@ -1532,8 +1532,7 @@ def distillation_train(
                         traceback.print_exc()
                         raise
                     
-                    # 学生模型前向传播（可训练模型）
-                    print("  ✓ Computing student model logits...")
+
                     try:
                         
                         # 检查并修复teacher_logits的形状（如果存在）
@@ -1793,7 +1792,6 @@ def distillation_train(
                     if field in train_data:
                         if torch.is_tensor(train_data[field]):
                             clean_worker_data[field] = train_data[field]
-                            print(f"  ✅ Added {field}: {train_data[field].shape}")
                         else:
                             print(f"  ⚠️ Warning: {field} is not a tensor, skipping")
                     else:
