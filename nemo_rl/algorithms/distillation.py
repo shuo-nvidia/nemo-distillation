@@ -849,6 +849,13 @@ def distillation_train(
                     from nemo_rl.environments.math_environment import MathEnvironment
                     from nemo_rl.distributed.ray_actor_environment_registry import get_actor_python_env
                     
+                    # 从master_config获取环境配置
+                    env_configs = master_config.get("env", {})
+                    if "math" not in env_configs:
+                        # 如果没有环境配置，使用默认配置
+                        env_configs["math"] = {"num_workers": 8}
+                        print(f"  ⚠️ No math environment config found, using default: {env_configs['math']}")
+                    
                     distillation_env = MathEnvironment.options(
                         runtime_env={
                             "py_executable": get_actor_python_env(
