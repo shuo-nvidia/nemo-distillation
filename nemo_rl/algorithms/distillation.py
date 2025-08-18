@@ -843,52 +843,22 @@ def distillation_train(
                     import torch
                     from nemo_rl.models.generation.interfaces import GenerationDatumSpec
                     
-                    @ray.remote
-                    class DistillationVirtualEnvironment:
-                        """虚拟环境，用于蒸馏任务，避免环境交互错误"""
+                    # 性能优化：使用简单的静态环境，避免Ray actor开销
+                    class DistillationStaticEnvironment:
+                        """静态环境，用于蒸馏任务，避免Ray actor和复杂计算开销"""
                         
                         def step(self, messages, env_info):
-                            """虚拟step方法，返回默认奖励"""
-                            # 返回默认的奖励和终止状态
-                            # 注意：rollout期望的返回格式是元组，不是EnvironmentReturn对象
-                            # 格式：(env_observations, metadata, next_stop_strings, task_rewards, terminateds, answers)
-                            
-                            # 确保返回的数据结构正确
+                            """静态step方法，返回默认奖励"""
                             batch_size = len(messages)
                             
-                            # 添加调试信息
-                            print(f"  🔍 [VirtualEnv] Processing {batch_size} messages")
-                            for i, msg in enumerate(messages[:2]):  # 只检查前2个
-                                if isinstance(msg, dict) and "token_ids" in msg:
-                                    print(f"    Message {i}: {len(msg['token_ids'])} tokens")
-                                else:
-                                    print(f"    Message {i}: {type(msg)}")
-                            
-                            # env_observations: 环境观察，对于蒸馏任务返回空的assistant消息
-                            env_observations = [{"role": "assistant", "content": ""} for _ in range(batch_size)]
-                            
-                            # metadata: 元数据，返回空字典
-                            metadata = [{} for _ in range(batch_size)]
-                            
-                            # next_stop_strings: 下一个停止字符串，返回None
-                            next_stop_strings = [None for _ in range(batch_size)]
-                            
-                            # task_rewards: 任务奖励，返回0.0（蒸馏任务不需要环境奖励）
-                            task_rewards = [0.0 for _ in range(batch_size)]
-                            
-                            # terminateds: 是否终止，返回True（蒸馏任务单轮完成）
-                            terminateds = [True for _ in range(batch_size)]
-                            
-                            # answers: 答案，返回None
-                            answers = [None for _ in range(batch_size)]
-                            
+                            # 直接返回预计算的结果，避免循环和打印
                             return (
-                                env_observations,      # 环境观察
-                                metadata,              # 元数据
-                                next_stop_strings,     # 下一个停止字符串
-                                task_rewards,          # 任务奖励
-                                terminateds,           # 是否终止
-                                answers,               # 答案
+                                [{"role": "assistant", "content": ""} for _ in range(batch_size)],  # env_observations
+                                [{} for _ in range(batch_size)],                                   # metadata
+                                [None for _ in range(batch_size)],                                 # next_stop_strings
+                                [0.0 for _ in range(batch_size)],                                 # task_rewards
+                                [True for _ in range(batch_size)],                                # terminateds
+                                [None for _ in range(batch_size)],                                # answers
                             )
                     
                     # 创建虚拟环境实例

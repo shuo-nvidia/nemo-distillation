@@ -9,7 +9,7 @@ policy:
   train_micro_batch_size: 1  # 修改为1，减少内存使用
   generation_batch_size: 32 # Only used when generating using HF backend
   logprob_batch_size: 2  # 修改为2，减少内存使用
-  max_total_sequence_length: 1024  # 修改为与GRPO一致，避免序列长度问题
+  max_total_sequence_length: 512  # 修改为512，避免序列长度过长
   precision: "bfloat16"
 
   dtensor_cfg:
@@ -72,7 +72,7 @@ policy:
   # 生成配置（与GRPO完全一致）
   generation:
     backend: "vllm"  # 使用vLLM后端，与GRPO保持一致，确保有generate方法
-    max_new_tokens: ${policy.max_total_sequence_length}  # 与GRPO保持一致：生成可占用整个序列长度
+    max_new_tokens: 128  # 限制生成token数量，避免序列过长
     temperature: 1.0
     top_p: 1.0
     top_k: null
@@ -85,7 +85,7 @@ policy:
       tensor_parallel_size: 1
       pipeline_parallel_size: 1
       gpu_memory_utilization: 0.5  # 降低内存使用率，从0.6改为0.5
-      max_model_len: ${policy.max_total_sequence_length}  # 512
+      max_model_len: 512  # 固定为512，避免序列长度过长
       enforce_eager: False
       # 禁用分布式执行，避免端口冲突
       distributed_executor_backend: null
@@ -116,7 +116,7 @@ distillation:
   mixed_kl_weight: 0.5  # 混合KL时的权重系数（当kl_type为"mixed"时使用）
   generate_strategy:  # 学生生成参数
     max_length: ${policy.max_total_sequence_length}  # 与policy配置保持一致
-    max_new_tokens: ${policy.max_total_sequence_length}  # 与GRPO保持一致：生成可占用整个序列长度
+    max_new_tokens: 128  # 限制生成token数量，避免序列过长
     temperature: 0.7  # 采样温度（控制生成随机性，默认为0.1）
     decoding_method: "top_p"  # 解码方式（如greedy、top_k）
   
