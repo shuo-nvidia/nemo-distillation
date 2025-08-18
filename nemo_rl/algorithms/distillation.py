@@ -1734,12 +1734,13 @@ def distillation_train(
                         import traceback
                         traceback.print_exc()
                         raise
-                loss=train_results["all_mb_metrics"]["loss"]
+                loss_list=train_results["all_mb_metrics"]["loss"]
+                loss = sum(loss_list) / len(loss_list)
                 print(f"  ✅ Distillation loss computed successfully")
                 # 记录损失
                 if logger is not None:
                     # 记录主要训练损失
-                    logger.log_metrics({"train/loss": loss.item()}, step)
+                    logger.log_metrics({"train/loss": loss}, step)
                     
                     # 记录生成长度相关指标
                     if "input_ids" in train_data:
