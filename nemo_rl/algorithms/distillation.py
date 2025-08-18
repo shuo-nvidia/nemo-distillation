@@ -1786,7 +1786,7 @@ def distillation_train(
                 print("  🔍 Cleaning training data for worker...")
                 
                 # 只保留worker需要的标准张量字段
-                worker_required_fields = ["input_ids", "input_lengths", "token_mask", "sample_mask", "teacher_logits", "student_logits", "student_logits"]
+                worker_required_fields = ["input_ids", "input_lengths", "token_mask", "sample_mask", "teacher_logits", "student_logits"]
                 clean_worker_data = {}
                 
                 for field in worker_required_fields:

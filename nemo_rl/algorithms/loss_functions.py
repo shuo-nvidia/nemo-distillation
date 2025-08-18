@@ -841,24 +841,6 @@ class DistillationLossFn(LossFunction):
         expected_batch_size = input_ids.shape[0]
         expected_seq_len = input_ids.shape[1]
         
-        
-        
-        if len(student_logits.shape) == 2:
-            if student_logits.shape[0] == expected_batch_size and student_logits.shape[1] == expected_seq_len * student_logits.shape[-1]:
-                # 重塑为[batch_size, seq_len, vocab_size]
-                vocab_size = student_logits.shape[1] // expected_seq_len
-                student_logits = student_logits.view(expected_batch_size, expected_seq_len, vocab_size)
-                
-            else:
-                pass
-        
-        # 修复teacher_logits的形状
-        if len(teacher_logits.shape) == 2:
-            # 如果teacher_logits是[batch_size, vocab_size]，需要扩展为[batch_size, seq_len, vocab_size]
-            if teacher_logits.shape[0] == expected_batch_size and teacher_logits.shape[1] == expected_seq_len * teacher_logits.shape[-1]:
-                # 重塑为[batch_size, seq_len, vocab_size]
-                vocab_size = teacher_logits.shape[1] // expected_seq_len
-                teacher_logits = teacher_logits.view(expected_batch_size, expected_seq_len, vocab_size)
                
 
         kl_type = data.get("kl_type", "mixed")  # 默认使用forward KL
@@ -921,7 +903,7 @@ class DistillationLossFn(LossFunction):
         
         # 准备metrics - 只保留数值类型，确保框架兼容性
         metrics = {
-            "kl_loss": kl_loss.item(),
+            "loss": kl_loss.item(),
             "temperature": temperature,
             "alpha": alpha,
             "kl_type_numeric": 1.0 if kl_type == "forward" else (2.0 if kl_type == "reverse" else 3.0),
