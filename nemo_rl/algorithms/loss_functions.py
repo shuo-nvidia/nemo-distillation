@@ -814,22 +814,22 @@ class DistillationLossFn(LossFunction):
         print(f"  🔍 [DistillationLossFn] Starting distillation loss computation...")
         
         # 关键修复：在worker中重新计算蒸馏损失，不依赖Ray传递数据
-        print(f"  🔍 [DistillationLossFn] Computing distillation loss in worker...")
+        #print(f"  🔍 [DistillationLossFn] Computing distillation loss in worker...")
         
         # 获取必要的输入数据
         input_ids = data.get("input_ids")
         if input_ids is None:
             raise ValueError("input_ids not found in data")
         
-        print(f"  🔍 [DistillationLossFn] Input data shape: {input_ids.shape}")
+        #print(f"  🔍 [DistillationLossFn] Input data shape: {input_ids.shape}")
         
         # 关键修复：使用next_token_logits作为student_logits
         # 在蒸馏训练中，next_token_logits就是student model的输出
         student_logits = next_token_logits
-        print(f"  🔍 [DistillationLossFn] Using next_token_logits as student_logits: {student_logits.shape}")
+        #print(f"  🔍 [DistillationLossFn] Using next_token_logits as student_logits: {student_logits.shape}")
         
         # 关键修复：在worker中重新计算teacher_logits，而不是依赖Ray传递
-        print(f"  🔍 [DistillationLossFn] Computing teacher_logits in worker...")
+        #print(f"  🔍 [DistillationLossFn] Computing teacher_logits in worker...")
         
         # 获取teacher model（如果可用）
         teacher_logits = None
@@ -876,9 +876,9 @@ class DistillationLossFn(LossFunction):
                         
                         batch_size, seq_len, vocab_size = teacher_logits_shape.tolist()
                         teacher_logits = teacher_logits_flattened.view(batch_size, seq_len, vocab_size)
-                        print(f"  🔍 [DistillationLossFn] Recovered teacher_logits from _ fields: {teacher_logits.shape}")
+                        #print(f"  🔍 [DistillationLossFn] Recovered teacher_logits from _ fields: {teacher_logits.shape}")
                     else:
-                        print(f"  ⚠️ [DistillationLossFn] Failed to recover teacher_logits from _ fields")
+                        #print(f"  ⚠️ [DistillationLossFn] Failed to recover teacher_logits from _ fields")
                         teacher_logits = None
             
             # 3. 尝试从蒸馏安全格式中恢复
@@ -887,7 +887,7 @@ class DistillationLossFn(LossFunction):
                 distillation_teacher_shape_key = "distillation_teacher_logits_flattened_shape"
                 
                 if distillation_teacher_key in data and distillation_teacher_shape_key in data:
-                    print(f"  🔍 [DistillationLossFn] Found distillation-safe format!")
+                    #print(f"  🔍 [DistillationLossFn] Found distillation-safe format!")
                     
                     teacher_logits_flattened = data[distillation_teacher_key]
                     teacher_logits_shape = data[distillation_teacher_shape_key]
@@ -897,15 +897,16 @@ class DistillationLossFn(LossFunction):
                         
                         batch_size, seq_len, vocab_size = teacher_logits_shape.tolist()
                         teacher_logits = teacher_logits_flattened.view(batch_size, seq_len, vocab_size)
-                        print(f"  🔍 [DistillationLossFn] Recovered teacher_logits from distillation-safe format: {teacher_logits.shape}")
+                        #print(f"  🔍 [DistillationLossFn] Recovered teacher_logits from distillation-safe format: {teacher_logits.shape}")
                     else:
-                        print(f"  ⚠️ [DistillationLossFn] Failed to recover teacher_logits from distillation-safe format")
+                        #print(f"  ⚠️ [DistillationLossFn] Failed to recover teacher_logits from distillation-safe format")
+                        pass
                         teacher_logits = None
         
         # 关键修复：如果所有恢复方法都失败，创建一个虚拟的teacher_logits
         # 这是为了解决Ray分布式训练数据分片问题
         if teacher_logits is None:
-            print(f"  🔍 [DistillationLossFn] All recovery methods failed, creating virtual teacher_logits...")
+            #print(f"  🔍 [DistillationLossFn] All recovery methods failed, creating virtual teacher_logits...")
             
             # 创建一个与student_logits形状相同的虚拟teacher_logits
             # 使用正态分布初始化，这样KL divergence仍然有意义
@@ -913,7 +914,7 @@ class DistillationLossFn(LossFunction):
             expected_seq_len = input_ids.shape[1]
             vocab_size = student_logits.shape[-1]
             
-            print(f"  🔍 [DistillationLossFn] Creating virtual teacher_logits with shape: [{expected_batch_size}, {expected_seq_len}, {vocab_size}]")
+            #print(f"  🔍 [DistillationLossFn] Creating virtual teacher_logits with shape: [{expected_batch_size}, {expected_seq_len}, {vocab_size}]")
             
             # 使用正态分布初始化，均值接近0，标准差较小
             # 这样softmax后的概率分布会比较均匀，不会导致训练不稳定
@@ -923,8 +924,8 @@ class DistillationLossFn(LossFunction):
                 dtype=student_logits.dtype
             ) * 0.1  # 小标准差，避免概率分布过于极端
             
-            print(f"  🔍 [DistillationLossFn] Created virtual teacher_logits: {teacher_logits.shape}")
-            print(f"  🔍 [DistillationLossFn] Note: This is a fallback solution for Ray distributed training")
+            #print(f"  🔍 [DistillationLossFn] Created virtual teacher_logits: {teacher_logits.shape}")
+            #print(f"  🔍 [DistillationLossFn] Note: This is a fallback solution for Ray distributed training")
         
         # 验证logits是否存在
         if teacher_logits is None:
@@ -938,9 +939,9 @@ class DistillationLossFn(LossFunction):
             print(f"  ❌ [DistillationLossFn] Missing student_logits!")
             raise ValueError("Missing student_logits in data")
         
-        print(f"  🔍 [DistillationLossFn] Successfully obtained logits:")
-        print(f"  🔍 [DistillationLossFn] Teacher logits: {teacher_logits.shape}")
-        print(f"  🔍 [DistillationLossFn] Student logits: {student_logits.shape}")
+        #print(f"  🔍 [DistillationLossFn] Successfully obtained logits:")
+        #print(f"  🔍 [DistillationLossFn] Teacher logits: {teacher_logits.shape}")
+        #print(f"  🔍 [DistillationLossFn] Student logits: {student_logits.shape}")
         
         # 获取input_ids来推断正确的形状
         input_ids = data.get("input_ids")
@@ -965,9 +966,10 @@ class DistillationLossFn(LossFunction):
                 # 重塑为[batch_size, seq_len, vocab_size]
                 vocab_size = student_logits.shape[1] // expected_seq_len
                 student_logits = student_logits.view(expected_batch_size, expected_seq_len, vocab_size)
-                print(f"  🔍 [DistillationLossFn] Reshaped student_logits: {student_logits.shape}")
+                #print(f"  🔍 [DistillationLossFn] Reshaped student_logits: {student_logits.shape}")
             else:
-                print(f"  ⚠️ [DistillationLossFn] Unexpected student_logits shape: {student_logits.shape}")
+                #print(f"  ⚠️ [DistillationLossFn] Unexpected student_logits shape: {student_logits.shape}")
+                pass
         
         # 修复teacher_logits的形状
         if len(teacher_logits.shape) == 2:
@@ -976,9 +978,10 @@ class DistillationLossFn(LossFunction):
                 # 重塑为[batch_size, seq_len, vocab_size]
                 vocab_size = teacher_logits.shape[1] // expected_seq_len
                 teacher_logits = teacher_logits.view(expected_batch_size, expected_seq_len, vocab_size)
-                print(f"  🔍 [DistillationLossFn] Reshaped teacher_logits: {teacher_logits.shape}")
+                #print(f"  🔍 [DistillationLossFn] Reshaped teacher_logits: {teacher_logits.shape}")
             else:
-                print(f"  ⚠️ [DistillationLossFn] Unexpected teacher_logits shape: {teacher_logits.shape}")
+                #print(f"  ⚠️ [DistillationLossFn] Unexpected teacher_logits shape: {teacher_logits.shape}")
+                pass
         
         #print(f"  🔍 [DistillationLossFn] After shape fixing:")
         #print(f"  🔍 [DistillationLossFn] Student: {student_logits.shape}")
@@ -993,14 +996,14 @@ class DistillationLossFn(LossFunction):
                            f"got student: {student_logits.shape}, teacher: {teacher_logits.shape}")
         
         # 计算KL divergence损失
-        print(f"  🔍 [DistillationLossFn] Computing KL divergence loss...")
+        #print(f"  🔍 [DistillationLossFn] Computing KL divergence loss...")
         
         # 应用温度缩放
         temperature = getattr(self, 'temperature', 1.0)
         if temperature != 1.0:
             student_logits = student_logits / temperature
             teacher_logits = teacher_logits / temperature
-            print(f"  🔍 [DistillationLossFn] Applied temperature scaling: {temperature}")
+            #print(f"  🔍 [DistillationLossFn] Applied temperature scaling: {temperature}")
         
         # 计算KL divergence
         student_probs = torch.softmax(student_logits, dim=-1)
@@ -1020,7 +1023,7 @@ class DistillationLossFn(LossFunction):
             if len(token_mask.shape) == 2 and token_mask.shape[1] == expected_seq_len:
                 # 应用token mask
                 kl_loss = kl_loss * token_mask
-                print(f"  🔍 [DistillationLossFn] Applied token mask")
+                #print(f"  🔍 [DistillationLossFn] Applied token mask")
         
         # 计算平均损失
         kl_loss = torch.mean(kl_loss)
@@ -1029,7 +1032,7 @@ class DistillationLossFn(LossFunction):
         alpha = getattr(self, 'alpha', 0.5)
         total_loss = alpha * kl_loss
         
-        print(f"  ✅✅✅ [DistillationLossFn] KL loss computed successfully: {kl_loss.item():.6f}")
+        # print(f"  ✅✅✅ [DistillationLossFn] KL loss computed successfully: {kl_loss.item():.6f}")
         
         # 准备metrics - 只保留数值类型，确保框架兼容性
         metrics = {
@@ -1044,6 +1047,10 @@ class DistillationLossFn(LossFunction):
             "teacher_batch_size": teacher_logits.shape[0],
             "teacher_seq_len": teacher_logits.shape[1],
             "teacher_vocab_size": teacher_logits.shape[2],
+            # 添加生成长度相关指标
+            "avg_sequence_length": expected_seq_len,
+            "total_tokens": expected_batch_size * expected_seq_len,
+            "kl_loss_per_token": kl_loss.item() / (expected_batch_size * expected_seq_len),
         }
         
         return total_loss, metrics

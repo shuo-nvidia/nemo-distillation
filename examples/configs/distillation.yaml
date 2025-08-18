@@ -191,9 +191,22 @@ cluster:
 # 日志配置
 logger:
   enabled: true
-  log_dir: "logs/distillation"
+  log_dir: "logs/distillation"  # Base directory for all logs
   log_level: "INFO"
-  tensorboard: true
-  wandb: false
-  wandb_project: "nemo-distillation"
-  wandb_entity: null
+  wandb_enabled: true  # 启用wandb
+  tensorboard_enabled: true
+  mlflow_enabled: false  # Disable MLflow logging
+  monitor_gpus: true  # If true, will monitor GPU usage and log to wandb and/or tensorboard
+  num_val_samples_to_print: 0  # Number of validation samples to pretty print on terminal
+  wandb:
+    project: "nemo-distillation"
+    name: "distillation-${data.dataset_name}-${policy.model_name}"
+    entity: null  # 如果需要可以设置您的wandb用户名
+  tensorboard:
+    log_dir: "tb_logs-distillation-${data.dataset_name}"
+  mlflow:
+    experiment_name: "distillation-dev"
+    run_name: "distillation-${data.dataset_name}-${policy.model_name}"
+  gpu_monitoring:
+    collection_interval: 10  # How often to collect GPU usage metrics (in seconds)
+    flush_interval: 10  # How often to flush GPU usage metrics to the loggers (in seconds)

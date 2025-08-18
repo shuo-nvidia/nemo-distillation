@@ -160,14 +160,16 @@ env_vars:
 logger:
   log_dir: "logs/distillation"  # Base directory for all logs
   num_val_samples_to_print: 0 # Number of validation samples to pretty print on terminal
-  wandb_enabled: false
-  tensorboard_enabled: false
+  wandb_enabled: true  # 启用wandb监控
+  tensorboard_enabled: true  # 启用tensorboard
   mlflow_enabled: false  # Disable MLflow logging
   monitor_gpus: true  # If true, will monitor GPU usage and log to wandb and/or tensorboard
   wandb:
-    project: "distillation-dev"
-    name: "distillation-math-cl-logger"
-  tensorboard: {}
+    project: "nemo-distillation"
+    name: "distillation-${data.dataset_name}-${policy.model_name}"
+    entity: null  # 如果需要可以设置您的wandb用户名
+  tensorboard:
+    log_dir: "tb_logs-distillation-${data.dataset_name}"
   mlflow:
     experiment_name: "distillation-dev"
     run_name: "distillation-math-cl-logger"
