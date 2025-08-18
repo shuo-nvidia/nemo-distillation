@@ -430,11 +430,22 @@ def refit_student_generation(
                                 student_generation.cfg['top_p'] = generation_config['top_p']
                                 print(f"  🔍 Updated top_p to: {generation_config['top_p']}")
                     
-                    # 更新最大生成长度
-                    if 'max_length' in generation_config:
+                    # 更新最大生成长度 - 参考GRPO：max_new_tokens通常等于max_total_sequence_length
+                    if 'max_new_tokens' in generation_config:
                         if 'max_new_tokens' in student_generation.cfg:
-                            student_generation.cfg['max_new_tokens'] = generation_config['max_length']
-                            print(f"  🔍 Updated max_new_tokens to: {generation_config['max_length']}")
+                            student_generation.cfg['max_new_tokens'] = generation_config['max_new_tokens']
+                            print(f"  🔍 Updated max_new_tokens to: {generation_config['max_new_tokens']}")
+                    else:
+                        # 如果没有配置max_new_tokens，使用GRPO的默认行为
+                        # 从master_config获取max_total_sequence_length作为max_new_tokens
+                        try:
+                            max_seq_len = master_config["policy"]["max_total_sequence_length"]
+                            student_generation.cfg['max_new_tokens'] = max_seq_len
+                            print(f"  🔍 Using GRPO-style max_new_tokens = max_total_sequence_length: {max_seq_len}")
+                        except Exception as e:
+                            print(f"  ⚠️ Warning: Failed to get max_total_sequence_length: {e}")
+                            student_generation.cfg['max_new_tokens'] = 512  # 使用合理的默认值
+                            print(f"  🔍 Using fallback max_new_tokens: 512")
                         
                 print(f"  ✅ Generation configuration updated successfully")
             except Exception as e:
@@ -932,41 +943,18 @@ def distillation_train(
                         #print(f"  🔍 Expected: {expected_repeated_size}, Got: {repeated_batch.size}")
                         #print(f"  🔍 This might cause shape issues later")
                     
-                    # 关键修复：在rollout之前检查序列长度，确保不超过vLLM限制
+                    # 关键修复：参考GRPO的实现，直接使用max_total_sequence_length作为rollout的max_seq_len
                     max_seq_len = master_config["policy"]["max_total_sequence_length"]
                     
-                    # 修复：从正确的配置路径获取max_new_tokens
-                    print(f"  🔍 Config paths check:")
-                    print(f"    - master_config keys: {list(master_config.keys())}")
-                    if "generation" in master_config:
-                        print(f"    - generation keys: {list(master_config['generation'].keys())}")
-                    if "policy" in master_config and "generation" in master_config["policy"]:
-                        print(f"    - policy.generation keys: {list(master_config['policy']['generation'].keys())}")
+                    print(f"  🔍 Using GRPO-style sequence length handling:")
+                    print(f"    - max_seq_len (from policy.max_total_sequence_length): {max_seq_len}")
+                    print(f"    - Note: Input and generation share this length limit (like GRPO)")
                     
-                    try:
-                        max_new_tokens = master_config["generation"]["max_new_tokens"]
-                        print(f"    ✅ Found max_new_tokens in generation: {max_new_tokens}")
-                    except KeyError:
-                        # 如果找不到，尝试从policy.generation获取
-                        try:
-                            max_new_tokens = master_config["policy"]["generation"]["max_new_tokens"]
-                            print(f"    ✅ Found max_new_tokens in policy.generation: {max_new_tokens}")
-                        except KeyError:
-                            # 如果都找不到，使用默认值
-                            max_new_tokens = 128
-                            print(f"    ⚠️ Warning: max_new_tokens not found in config, using default: {max_new_tokens}")
+                    # 检查并截断过长的序列，但使用更宽松的限制
+                    # 参考GRPO：输入和生成共享序列长度，不需要严格分离
+                    max_input_len = max_seq_len  # 允许输入占用整个序列长度
                     
-                    max_input_len = max_seq_len - max_new_tokens
-                    
-                    print(f"  🔍 Sequence length check: max_seq_len={max_seq_len}, max_new_tokens={max_new_tokens}, max_input_len={max_input_len}")
-                    
-                    # 验证max_input_len是否合理
-                    if max_input_len <= 0:
-                        print(f"  ❌ Critical Error: max_input_len = {max_input_len} <= 0!")
-                        print(f"  🔍 This means max_seq_len ({max_seq_len}) <= max_new_tokens ({max_new_tokens})")
-                        print(f"  🔍 Setting max_input_len to max_seq_len // 2")
-                        max_input_len = max_seq_len // 2
-                        print(f"  🔍 Fixed max_input_len = {max_input_len}")
+                    print(f"  🔍 Sequence length check: max_seq_len={max_seq_len}, max_input_len={max_input_len}")
                     
                     # 检查并截断过长的序列
                     for i, message_log in enumerate(repeated_batch["message_log"]):

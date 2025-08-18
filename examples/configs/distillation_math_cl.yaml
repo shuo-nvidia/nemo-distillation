@@ -72,7 +72,7 @@ policy:
   # 生成配置（与GRPO完全一致）
   generation:
     backend: "vllm"  # 使用vLLM后端，与GRPO保持一致，确保有generate方法
-    max_new_tokens: 128  # 修改为合理值，确保输入+生成不超过max_model_len
+    max_new_tokens: ${policy.max_total_sequence_length}  # 与GRPO保持一致：生成可占用整个序列长度
     temperature: 1.0
     top_p: 1.0
     top_k: null
@@ -116,6 +116,7 @@ distillation:
   mixed_kl_weight: 0.5  # 混合KL时的权重系数（当kl_type为"mixed"时使用）
   generate_strategy:  # 学生生成参数
     max_length: ${policy.max_total_sequence_length}  # 与policy配置保持一致
+    max_new_tokens: ${policy.max_total_sequence_length}  # 与GRPO保持一致：生成可占用整个序列长度
     temperature: 0.7  # 采样温度（控制生成随机性，默认为0.1）
     decoding_method: "top_p"  # 解码方式（如greedy、top_k）
   
