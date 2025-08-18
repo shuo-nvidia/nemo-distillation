@@ -1284,6 +1284,24 @@ def distillation_train(
                     #print(f"  🔍   - token_loss_mask: {flat_messages['token_loss_mask'].shape}")
                     #print(f"  🔍   - loss_multiplier: {repeated_batch['loss_multiplier'].shape}")
                     
+                    # 最终验证loss_multiplier的类型和形状
+                    if not isinstance(repeated_batch["loss_multiplier"], torch.Tensor):
+                        print(f"  ❌ Critical error: loss_multiplier is not a tensor!")
+                        print(f"  🔍 Type: {type(repeated_batch['loss_multiplier'])}")
+                        print(f"  🔍 Value: {repeated_batch['loss_multiplier']}")
+                        
+                        # 尝试修复
+                        if isinstance(repeated_batch["loss_multiplier"], (list, tuple)):
+                            repeated_batch["loss_multiplier"] = torch.tensor(repeated_batch["loss_multiplier"], dtype=torch.float32)
+                            print(f"  ✅ Fixed: Converted list to tensor")
+                        elif isinstance(repeated_batch["loss_multiplier"], (int, float)):
+                            repeated_batch["loss_multiplier"] = torch.tensor([repeated_batch["loss_multiplier"]] * expected_batch_size, dtype=torch.float32)
+                            print(f"  ✅ Fixed: Converted scalar to tensor")
+                        else:
+                            # 创建默认的loss_multiplier
+                            repeated_batch["loss_multiplier"] = torch.ones(expected_batch_size, dtype=torch.float32)
+                            print(f"  ✅ Fixed: Created default loss_multiplier")
+                    
                     # 验证所有字段的batch维度一致
                     all_batch_sizes = [
                         flat_messages['token_ids'].shape[0],
@@ -2063,6 +2081,19 @@ def distillation_train(
                 # 关键修复：检查所有字段的batch size是否一致
                 # print(f"  🔍 Checking batch size consistency across all fields...")
                 pass
+                
+                # 添加调试信息：显示所有字段的类型
+                print(f"  🔍 Distillation safe data fields:")
+                for key, value in distillation_safe_data.items():
+                    if torch.is_tensor(value):
+                        print(f"    {key}: tensor {value.shape}")
+                    elif isinstance(value, (list, tuple)):
+                        print(f"    {key}: {type(value).__name__} with {len(value)} items")
+                    elif isinstance(value, (int, float)):
+                        print(f"    {key}: {type(value).__name__} = {value}")
+                    else:
+                        print(f"    {key}: {type(value).__name__}")
+                
                 batch_sizes = {}
                 for key, value in distillation_safe_data.items():
                     if torch.is_tensor(value):
@@ -2070,8 +2101,17 @@ def distillation_train(
                             batch_sizes[key] = value.shape[0]
                         else:
                             batch_sizes[key] = 1  # 标量张量
-                    else:
+                    elif isinstance(value, (list, tuple)):
                         batch_sizes[key] = len(value)
+                    elif isinstance(value, (int, float)):
+                        batch_sizes[key] = 1  # 标量值
+                    else:
+                        # 对于其他类型，尝试调用len，如果失败则设为1
+                        try:
+                            batch_sizes[key] = len(value)
+                        except (TypeError, AttributeError):
+                            batch_sizes[key] = 1
+                            print(f"  ⚠️ Warning: Field {key} has unsupported type {type(value)}, setting batch size to 1")
                 
                 # print(f"  🔍 Batch sizes for each field:")
                 pass
@@ -2154,19 +2194,38 @@ def distillation_train(
                                         # print(f"  🔍 Fixed {key} shape: {value.shape}")
                                         pass
                                 else:
-                                    current_batch_size = len(value)
+                                    # 安全地获取batch size
+                                    if isinstance(value, (list, tuple)):
+                                        current_batch_size = len(value)
+                                    elif isinstance(value, (int, float)):
+                                        current_batch_size = 1
+                                    else:
+                                        try:
+                                            current_batch_size = len(value)
+                                        except (TypeError, AttributeError):
+                                            current_batch_size = 1
+                                            print(f"  ⚠️ Warning: Cannot determine batch size for field {key} of type {type(value)}")
+                                    
                                     if current_batch_size != target_standard_batch_size:
                                         # print(f"  🔍 Fixing standard field {key}: {current_batch_size} -> {target_standard_batch_size}")
                                         pass
                                         
                                         if current_batch_size < target_standard_batch_size:
-                                            repeats = (target_standard_batch_size + current_batch_size - 1) // current_batch_size
-                                            value = (value * repeats)[:target_standard_batch_size]
+                                            if isinstance(value, (list, tuple)):
+                                                repeats = (target_standard_batch_size + current_batch_size - 1) // current_batch_size
+                                                value = (value * repeats)[:target_standard_batch_size]
+                                            else:
+                                                # 对于标量值，创建重复列表
+                                                value = [value] * target_standard_batch_size
                                         else:
-                                            value = value[:target_standard_batch_size]
+                                            if isinstance(value, (list, tuple)):
+                                                value = value[:target_standard_batch_size]
+                                            else:
+                                                # 对于标量值，保持不变
+                                                pass
                                         
                                         distillation_safe_data[key] = value
-                                        # print(f"  🔍 Fixed {key} length: {len(value)}")
+                                        # print(f"  🔍 Fixed {key} length: {len(value) if hasattr(value, '__len__') else 'scalar'}")
                                         pass
                     else:
                         print(f"  ✅ Standard fields have consistent batch size: {unique_standard_batch_sizes.pop()}")
