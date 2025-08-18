@@ -1770,7 +1770,7 @@ def distillation_train(
                     }, step)
                     
                     # 打印训练loss信息
-                    print(f"  ✅✅✅ [Training] Step {step}: Loss = {loss.item():.6f}")
+                    print(f"  ✅✅✅ [Training] Step {step}: Loss = {loss:.6f}")
     
                 step += 1
                 distillation_save_state["step"] = step
