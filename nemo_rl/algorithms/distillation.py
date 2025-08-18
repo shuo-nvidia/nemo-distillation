@@ -2324,39 +2324,16 @@ def distillation_train(
                 # 创建最终的干净BatchedDataDict
                 final_train_data = BatchedDataDict[DistillationLossDataDict](clean_training_data)
 
-                # 从展平后的数据和形状信息中重建原始的3D logits数据
-                if "distillation_teacher_logits_flattened" in distillation_safe_data and "distillation_teacher_logits_flattened_shape" in distillation_safe_data:
-                    # 重建teacher_logits
-                    flattened_logits = distillation_safe_data["distillation_teacher_logits_flattened"]
-                    shape_info = distillation_safe_data["distillation_teacher_logits_flattened_shape"]
-                    batch_size, seq_len, vocab_size = shape_info.tolist()
-                    teacher_logits = flattened_logits.view(batch_size, seq_len, vocab_size)
-                    final_train_data["teacher_logits"] = teacher_logits
-                    print(f"  ✅ Teacher logits reconstructed and added to training data: {teacher_logits.shape}")
-                else:
-                    print(f"  ❌ Teacher logits data not found in distillation_safe_data!")
-                    
-                if "distillation_student_logits_flattened" in distillation_safe_data and "distillation_student_logits_flattened_shape" in distillation_safe_data:
-                    # 重建student_logits
-                    flattened_logits = distillation_safe_data["distillation_student_logits_flattened"]
-                    shape_info = distillation_safe_data["distillation_student_logits_flattened_shape"]
-                    batch_size, seq_len, vocab_size = shape_info.tolist()
-                    student_logits = flattened_logits.view(batch_size, seq_len, vocab_size)
-                    final_train_data["student_logits"] = student_logits
-                    print(f"  ✅ Student logits reconstructed and added to training data: {student_logits.shape}")
-                else:
-                    print(f"  ❌ Student logits data not found in distillation_safe_data!")
+                # 关键修复：不将logits数据添加到训练数据中，因为worker不需要这些数据
+                # logits数据只在损失函数计算时使用，不需要传递给worker
+                print(f"  ℹ️ Skipping logits data in training data (worker doesn't need them)")
+                print(f"  ℹ️ Logits will be used directly in loss function computation")
                 
-                # 验证蒸馏数据是否正确添加
-                if "teacher_logits" in final_train_data:
-                    print(f"  ✅ Teacher logits added to training data: {final_train_data['teacher_logits'].shape}")
+                # 验证训练数据不包含logits字段
+                if "teacher_logits" not in final_train_data and "student_logits" not in final_train_data:
+                    print(f"  ✅ Training data correctly excludes logits fields")
                 else:
-                    print(f"  ❌ Teacher logits not found in training data!")
-                    
-                if "student_logits" in final_train_data:
-                    print(f"  ✅ Student logits added to training data: {final_train_data['student_logits'].shape}")
-                else:
-                    print(f"  ❌ Student logits not found in training data!")
+                    print(f"  ⚠️ Warning: Training data still contains logits fields")
                 
                 final_keys = list(final_train_data.keys())
                 print(f"  🔍 Final training data keys: {final_keys}")
