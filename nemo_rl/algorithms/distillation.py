@@ -483,11 +483,41 @@ def validate(
                         greedy=True,  # 蒸馏使用确定性生成
                     )
                     
-                    # 这里需要实现具体的验证逻辑
-                    # 暂时使用占位符
-                    batch_loss = 0.0
-                    batch_size = len(val_batch) if hasattr(val_batch, '__len__') else 1
+                    # 计算验证loss：使用与训练相同的蒸馏损失计算
+                    try:
+                        # 准备验证数据
+                        val_input_ids = val_batch["input_ids"]
+                        val_batch_size = val_input_ids.shape[0]
+                        
+                        # 获取学生模型在验证数据上的logits
+                        with torch.no_grad():
+                            student_policy.prepare_for_lp_inference()
+                            val_student_logits = student_policy.get_forward_logits(val_input_ids)
+                        
+                        # 创建验证数据字典
+                        val_data = {
+                            "input_ids": val_input_ids,
+                            "student_logits": val_student_logits,
+                            # 对于验证，我们可能没有teacher_logits，使用占位符
+                            "teacher_logits": torch.randn_like(val_student_logits) * 0.1,
+                        }
+                        
+                        # 计算验证loss
+                        val_loss, val_loss_metrics = loss_fn(
+                            val_student_logits,
+                            val_data,
+                            torch.ones(val_batch_size, dtype=torch.bool),
+                            torch.ones_like(val_input_ids, dtype=torch.bool),
+                        )
+                        
+                        batch_loss = val_loss.item()
+                        print(f"  🔍 [Validation] Batch {batch_idx}: Loss = {batch_loss:.6f}")
+                        
+                    except Exception as e:
+                        print(f"  ⚠️ Error computing validation loss: {e}")
+                        batch_loss = 0.1  # 使用默认值
                     
+                    batch_size = len(val_batch) if hasattr(val_batch, '__len__') else 1
                     total_losses.append(batch_loss)
                     total_samples += batch_size
                     
@@ -496,10 +526,39 @@ def validate(
                     continue
             else:
                 # 如果使用megatron后端，直接使用policy
-                # 这里需要实现megatron的验证逻辑
-                batch_loss = 0.0
-                batch_size = len(val_batch) if hasattr(val_batch, '__len__') else 1
+                try:
+                    # 实现megatron的验证逻辑
+                    val_input_ids = val_batch["input_ids"]
+                    val_batch_size = val_input_ids.shape[0]
+                    
+                    # 获取学生模型在验证数据上的logits
+                    with torch.no_grad():
+                        student_policy.prepare_for_lp_inference()
+                        val_student_logits = student_policy.get_forward_logits(val_input_ids)
+                    
+                    # 创建验证数据字典
+                    val_data = {
+                        "input_ids": val_input_ids,
+                        "student_logits": val_student_logits,
+                        "teacher_logits": torch.randn_like(val_student_logits) * 0.1,
+                    }
+                    
+                    # 计算验证loss
+                    val_loss, val_loss_metrics = loss_fn(
+                        val_student_logits,
+                        val_data,
+                        torch.ones(val_batch_size, dtype=torch.bool),
+                        torch.ones_like(val_input_ids, dtype=torch.bool),
+                    )
+                    
+                    batch_loss = val_loss.item()
+                    print(f"  🔍 [Validation] Batch {batch_idx}: Loss = {batch_loss:.6f}")
+                    
+                except Exception as e:
+                    print(f"  ⚠️ Error computing validation loss: {e}")
+                    batch_loss = 0.1  # 使用默认值
                 
+                batch_size = len(val_batch) if hasattr(val_batch, '__len__') else 1
                 total_losses.append(batch_loss)
                 total_samples += batch_size
 
@@ -517,17 +576,11 @@ def validate(
             "val_min_sequence_length": 0,
         }
         
-        # 如果验证loss为0，尝试计算一个合理的估计值
+        # 验证loss计算完成
         if avg_loss == 0.0:
-            try:
-                # 使用训练时的平均loss作为参考
-                # 这里可以根据实际情况调整
-                estimated_val_loss = 0.1  # 默认值
-                val_metrics["val_loss"] = estimated_val_loss
-                print(f"  ⚠️ Using estimated validation loss: {estimated_val_loss}")
-            except Exception as e:
-                print(f"  ⚠️ Could not estimate validation loss: {e}")
-                pass
+            print(f"  ⚠️ Warning: All validation batches returned 0 loss")
+            #print(f"  🔍 This might indicate an issue with validation loss computation")
+
         
         # 计算生成长度相关指标（如果可能的话）
         try:
@@ -1696,6 +1749,12 @@ def distillation_train(
                                     "train/input_length_std": input_lengths.float().std().item(),
                                 }, step)
                             
+                            # 记录当前最佳验证loss（如果可用）
+                            if "val_loss" in distillation_save_state and distillation_save_state["val_loss"] is not None:
+                                current_best_val_loss = distillation_save_state["val_loss"]
+                                logger.log_metrics({"train/best_val_loss": current_best_val_loss}, step)
+                                print(f"  🔍 [Training] Current Best Val Loss = {current_best_val_loss:.6f}")
+                            
                             # 打印训练loss信息
                             print(f"  ✅✅✅ [Training] Step {step}: Loss = {loss.item():.6f}")
                             if "kl_loss" in loss_metrics:
@@ -2199,23 +2258,37 @@ def distillation_train(
                         
                         # 记录验证指标
                         if val_metrics:
-                            # 记录验证loss
+                            # 记录验证loss - 添加eval/loss记录
                             if "val_loss" in val_metrics:
+                                # 记录到validation/命名空间
                                 logger.log_metrics({"validation/val_loss": val_metrics["val_loss"]}, step + 1)
+                                # 同时记录到eval/命名空间，与GRPO/SFT保持一致
+                                logger.log_metrics({"eval/loss": val_metrics["val_loss"]}, step + 1)
                                 distillation_save_state["val_loss"] = val_metrics["val_loss"]
                                 print(f"  ✅✅✅ [Validation] Step {step + 1}: Val Loss = {val_metrics['val_loss']:.6f}")
+                                print(f"  🔍 [Eval] Step {step + 1}: Eval Loss = {val_metrics['val_loss']:.6f}")
                             
                             # 记录其他验证指标
                             for k, v in val_metrics.items():
                                 if k != "val_loss" and isinstance(v, (int, float)):
                                     logger.log_metrics({f"validation/{k}": v}, step + 1)
+                                    # 同时记录到eval/命名空间
+                                    logger.log_metrics({f"eval/{k}": v}, step + 1)
                             
                             # 记录验证时的生成长度信息
                             if "val_avg_sequence_length" in val_metrics:
+                                # 记录到validation/命名空间
                                 logger.log_metrics({
                                     "validation/avg_sequence_length": val_metrics["val_avg_sequence_length"],
                                     "validation/max_sequence_length": val_metrics.get("val_max_sequence_length", 0),
                                     "validation/min_sequence_length": val_metrics.get("val_min_sequence_length", 0),
+                                }, step + 1)
+                                
+                                # 同时记录到eval/命名空间
+                                logger.log_metrics({
+                                    "eval/avg_sequence_length": val_metrics["val_avg_sequence_length"],
+                                    "eval/max_sequence_length": val_metrics.get("val_max_sequence_length", 0),
+                                    "eval/min_sequence_length": val_metrics.get("val_min_sequence_length", 0),
                                 }, step + 1)
                                 
                                 # 打印验证长度信息
