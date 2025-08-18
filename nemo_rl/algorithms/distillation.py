@@ -1201,10 +1201,22 @@ def distillation_train(
                     if "token_loss_mask" not in flat_messages:
                         # print(f"  🔍 Adding missing token_loss_mask field...")
                         pass
-                        # 创建token loss mask，与GRPO保持一致
-                        flat_messages["token_loss_mask"] = torch.ones_like(
+                        # 关键修复：为蒸馏任务创建正确的token loss mask
+                        # 只对response tokens（非prompt）计算损失
+                        token_loss_mask = torch.zeros_like(
                             flat_messages["token_ids"], dtype=torch.bool
                         )
+                        
+                        # 根据input_lengths确定哪些是response tokens
+                        for i, seq_len in enumerate(input_lengths):
+                            # 假设前N个tokens是prompt，后面的tokens是response
+                            # 这里需要根据实际的数据结构来调整
+                            if seq_len > 0:
+                                # 标记response tokens为True（参与损失计算）
+                                token_loss_mask[i, :seq_len] = True
+                        
+                        flat_messages["token_loss_mask"] = token_loss_mask
+                        print(f"  🔍 Created distillation token_loss_mask: {token_loss_mask.sum().item()} response tokens out of {token_loss_mask.numel()} total tokens")
                     
                     # 创建与GRPO完全一致的train_data结构
                     # print(f"  🔍 Creating train_data with detailed shape validation...")
@@ -1911,11 +1923,29 @@ def distillation_train(
                         train_data["lambda_"] = lambda_
                         train_data["mixed_kl_weight"] = mixed_kl_weight
                         
+                        # 关键修复：正确传递token mask给损失函数
+                        # 确保只在response tokens上计算KL散度
+                        if "token_mask" in train_data:
+                            token_mask = train_data["token_mask"]
+                            total_tokens = token_mask.numel()
+                            response_tokens = token_mask.sum().item()
+                            prompt_tokens = total_tokens - response_tokens
+                            print(f"  🔍 Token mask analysis:")
+                            print(f"    - Total tokens: {total_tokens}")
+                            print(f"    - Response tokens (loss calculation): {response_tokens}")
+                            print(f"    - Prompt tokens (no loss): {prompt_tokens}")
+                            print(f"    - Response ratio: {response_tokens/total_tokens*100:.1f}%")
+                        else:
+                            # 如果没有token_mask，创建一个默认的（全1，但这不是理想情况）
+                            token_mask = torch.ones_like(train_data["input_ids"], dtype=torch.bool)
+                            print(f"  ⚠️ Warning: No token_mask found, using all tokens for loss calculation")
+                            print(f"  🔍 This means prompt and response tokens are treated equally!")
+                        
                         loss, loss_metrics = loss_fn(
                             student_logits,  # next_token_logits
                             train_data,      # data
                             torch.ones(train_data.size, dtype=torch.bool),  # global_valid_seqs
-                            torch.ones_like(flat_messages["token_ids"], dtype=torch.bool),  # global_valid_toks
+                            token_mask,      # 使用正确的token mask，而不是全1
                         )
                         
                         print(f"  ✅ Distillation loss computed successfully")
