@@ -522,7 +522,7 @@ def validate(
                         input_batch=val_batch,
                         tokenizer=tokenizer,
                         task_to_env={},  # 蒸馏任务不需要环境交互
-                        max_seq_len=min(max_length, master_config["max_total_sequence_length"]),  # 使用配置的max_length
+                        max_seq_len=min(max_length, master_config["policy"]["max_total_sequence_length"]),  # 使用配置的max_length
                         max_rollout_turns=1,  # 蒸馏只需要单轮生成
                         greedy=(decoding_method == "greedy"),  # 根据decoding_method决定是否greedy
                     )
@@ -934,10 +934,39 @@ def distillation_train(
                     
                     # 关键修复：在rollout之前检查序列长度，确保不超过vLLM限制
                     max_seq_len = master_config["policy"]["max_total_sequence_length"]
-                    max_new_tokens = master_config["policy"]["generation"]["max_new_tokens"]
+                    
+                    # 修复：从正确的配置路径获取max_new_tokens
+                    print(f"  🔍 Config paths check:")
+                    print(f"    - master_config keys: {list(master_config.keys())}")
+                    if "generation" in master_config:
+                        print(f"    - generation keys: {list(master_config['generation'].keys())}")
+                    if "policy" in master_config and "generation" in master_config["policy"]:
+                        print(f"    - policy.generation keys: {list(master_config['policy']['generation'].keys())}")
+                    
+                    try:
+                        max_new_tokens = master_config["generation"]["max_new_tokens"]
+                        print(f"    ✅ Found max_new_tokens in generation: {max_new_tokens}")
+                    except KeyError:
+                        # 如果找不到，尝试从policy.generation获取
+                        try:
+                            max_new_tokens = master_config["policy"]["generation"]["max_new_tokens"]
+                            print(f"    ✅ Found max_new_tokens in policy.generation: {max_new_tokens}")
+                        except KeyError:
+                            # 如果都找不到，使用默认值
+                            max_new_tokens = 128
+                            print(f"    ⚠️ Warning: max_new_tokens not found in config, using default: {max_new_tokens}")
+                    
                     max_input_len = max_seq_len - max_new_tokens
                     
-                    #print(f"  🔍 Sequence length check: max_seq_len={max_seq_len}, max_new_tokens={max_new_tokens}, max_input_len={max_input_len}")
+                    print(f"  🔍 Sequence length check: max_seq_len={max_seq_len}, max_new_tokens={max_new_tokens}, max_input_len={max_input_len}")
+                    
+                    # 验证max_input_len是否合理
+                    if max_input_len <= 0:
+                        print(f"  ❌ Critical Error: max_input_len = {max_input_len} <= 0!")
+                        print(f"  🔍 This means max_seq_len ({max_seq_len}) <= max_new_tokens ({max_new_tokens})")
+                        print(f"  🔍 Setting max_input_len to max_seq_len // 2")
+                        max_input_len = max_seq_len // 2
+                        print(f"  🔍 Fixed max_input_len = {max_input_len}")
                     
                     # 检查并截断过长的序列
                     for i, message_log in enumerate(repeated_batch["message_log"]):
@@ -974,7 +1003,7 @@ def distillation_train(
                             input_batch=repeated_batch,  # 使用重复后的batch
                             tokenizer=tokenizer,
                             task_to_env=distillation_task_env,  # 传递Ray actor虚拟环境
-                            max_seq_len=min(max_length, master_config["policy"]["max_total_sequence_length"]),  # 使用配置的max_length
+                            max_seq_len=min(max_length, max_seq_len),  # 使用计算好的max_seq_len
                             max_rollout_turns=1,  # 蒸馏只需要单轮生成
                             greedy=(decoding_method == "greedy"),  # 根据decoding_method决定是否greedy
                         )
