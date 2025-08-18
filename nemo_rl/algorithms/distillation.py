@@ -388,7 +388,13 @@ def refit_student_generation(
     colocated_inference: bool,
     _refit_buffer_size_gb: Optional[int] = None,
     timer: Optional[Timer] = None,
+    generation_config: Optional[dict] = None,
 ) -> None:
+    """Refit the student generation interface with the latest policy weights.
+    
+    参考GRPO的refit_policy_generation实现，但增加了蒸馏特定的生成配置更新功能。
+    这使得蒸馏任务能够动态调整生成参数，而不需要重新初始化整个生成后端。
+    """
     """Refit the student generation interface with the latest policy weights.
     
     参考GRPO的refit_policy_generation实现
@@ -396,6 +402,44 @@ def refit_student_generation(
     if colocated_inference:
         student_policy.offload_before_refit()
         student_generation.prepare_for_generation(tags=["weights"])
+        
+        # 更新生成配置参数（如temperature、decoding_method等）
+        if generation_config is not None:
+            try:
+                # 尝试更新生成后端的配置
+                if hasattr(student_generation, 'cfg') and isinstance(student_generation.cfg, dict):
+                    # 更新温度参数
+                    if 'temperature' in generation_config:
+                        student_generation.cfg['temperature'] = generation_config['temperature']
+                        print(f"  🔍 Updated generation temperature to: {generation_config['temperature']}")
+                    
+                    # 更新解码方法相关参数
+                    if 'decoding_method' in generation_config:
+                        if generation_config['decoding_method'] == 'greedy':
+                            # 对于greedy解码，设置top_k=1
+                            student_generation.cfg['top_k'] = 1
+                            print(f"  🔍 Set top_k=1 for greedy decoding")
+                        elif generation_config['decoding_method'] == 'top_k':
+                            # 对于top_k解码，使用默认值或配置值
+                            if 'top_k' in generation_config:
+                                student_generation.cfg['top_k'] = generation_config['top_k']
+                                print(f"  🔍 Updated top_k to: {generation_config['top_k']}")
+                        elif generation_config['decoding_method'] == 'top_p':
+                            # 对于top_p解码，确保top_p被设置
+                            if 'top_p' in generation_config:
+                                student_generation.cfg['top_p'] = generation_config['top_p']
+                                print(f"  🔍 Updated top_p to: {generation_config['top_p']}")
+                    
+                    # 更新最大生成长度
+                    if 'max_length' in generation_config:
+                        if 'max_new_tokens' in student_generation.cfg:
+                            student_generation.cfg['max_new_tokens'] = generation_config['max_length']
+                            print(f"  🔍 Updated max_new_tokens to: {generation_config['max_length']}")
+                        
+                print(f"  ✅ Generation configuration updated successfully")
+            except Exception as e:
+                print(f"  ⚠️ Warning: Failed to update generation config: {e}")
+                print(f"  🔍 This is not critical, generation will use default backend config")
 
     # Create a context manager that does nothing when timer is None
     timer_context = (
@@ -478,10 +522,9 @@ def validate(
                         input_batch=val_batch,
                         tokenizer=tokenizer,
                         task_to_env={},  # 蒸馏任务不需要环境交互
-                        max_seq_len=min(max_length, master_config["policy"]["max_total_sequence_length"]),  # 使用配置的max_length
+                        max_seq_len=min(max_length, master_config["max_total_sequence_length"]),  # 使用配置的max_length
                         max_rollout_turns=1,  # 蒸馏只需要单轮生成
                         greedy=(decoding_method == "greedy"),  # 根据decoding_method决定是否greedy
-                        temperature=temperature,  # 传递配置的temperature
                     )
                     
                     # 计算验证loss：使用与训练相同的蒸馏损失计算
@@ -682,6 +725,7 @@ def distillation_train(
     
     print(f"Starting from step {step}, max steps: {max_steps}")
     print(f"Generation config: max_length={max_length}, temperature={temperature}, decoding_method={decoding_method}")
+    print(f"Note: Temperature and decoding parameters are set in the generation backend config, not passed during calls")
     
     try:
         for batch_idx, batch in enumerate(train_dataloader):
@@ -757,7 +801,13 @@ def distillation_train(
                     if NEED_REFIT or STUDENT_GENERATION_STALE:
                         # print(f"  🔍 Refitting student generation...")
                         pass
-                        refit_student_generation(student_policy, student_generation, colocated_inference)
+                        # 传递生成配置参数（参考GRPO实现，但增加蒸馏特定的配置更新）
+                        generation_config = {
+                            'temperature': temperature,
+                            'decoding_method': decoding_method,
+                            'max_length': max_length,
+                        }
+                        refit_student_generation(student_policy, student_generation, colocated_inference, generation_config=generation_config)
                         STUDENT_GENERATION_STALE = False
                         NEED_REFIT = False
                         print(f"  ✅ Student generation refitted")
@@ -910,7 +960,6 @@ def distillation_train(
                             max_seq_len=min(max_length, master_config["policy"]["max_total_sequence_length"]),  # 使用配置的max_length
                             max_rollout_turns=1,  # 蒸馏只需要单轮生成
                             greedy=(decoding_method == "greedy"),  # 根据decoding_method决定是否greedy
-                            temperature=temperature,  # 传递配置的temperature
                         )
                         # 从rollout结果中提取生成的序列
                         generated_sequences = generated_batch["message_log"]
@@ -2264,8 +2313,14 @@ def distillation_train(
                         if NEED_REFIT and STUDENT_GENERATION_STALE:
                             # print(f"  🔍 Refitting for validation...")
                             pass
+                            # 传递生成配置参数
+                            generation_config = {
+                                'temperature': temperature,
+                                'decoding_method': decoding_method,
+                                'max_length': max_length,
+                            }
                             refit_student_generation(
-                                student_policy, student_generation, colocated_inference
+                                student_policy, student_generation, colocated_inference, generation_config=generation_config
                             )
                             STUDENT_GENERATION_STALE = False
                         else:
