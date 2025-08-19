@@ -7,7 +7,7 @@ policy:
   train_micro_batch_size: 1  
   generation_batch_size: 32 
   logprob_batch_size: 2  
-  max_total_sequence_length: 512  
+  max_total_sequence_length: 1024  
   precision: "bfloat16"
 
   dtensor_cfg:
@@ -80,7 +80,7 @@ policy:
       tensor_parallel_size: 1
       pipeline_parallel_size: 1
       gpu_memory_utilization: 0.5  
-      max_model_len: 512  
+      max_model_len: 1024  
       enforce_eager: False
 
       distributed_executor_backend: null
