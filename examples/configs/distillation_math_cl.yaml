@@ -80,7 +80,7 @@ policy:
       tensor_parallel_size: 1
       pipeline_parallel_size: 1
       gpu_memory_utilization: 0.5  
-      max_model_len: 1024  
+      max_model_len: 1152 
       enforce_eager: False
 
       distributed_executor_backend: null
