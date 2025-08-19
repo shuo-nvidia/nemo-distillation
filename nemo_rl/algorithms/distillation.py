@@ -1753,40 +1753,48 @@ def distillation_train(
                         import traceback
                         traceback.print_exc()
                         raise
-                loss_list=train_results["all_mb_metrics"]["loss"]
+                # 修复：采用与其他算法一致的方式，避免重复记录train/loss
+                loss_list = train_results["all_mb_metrics"]["loss"]
                 loss = sum(loss_list) / len(loss_list)
                 print(f"  ✅ Distillation loss computed successfully")
-                # 记录损失
+                
+                # 构建训练指标，采用GRPO/SFT/DPO的标准方式
+                metrics = {
+                    "loss": loss,  # 主要训练损失
+                    "grad_norm": train_results["grad_norm"].numpy() if hasattr(train_results["grad_norm"], "numpy") else train_results["grad_norm"],
+                }
+                
+                # 添加其他微批次指标（但不包含loss，避免重复）
+                all_mb_metrics = train_results["all_mb_metrics"].copy()
+                if "loss" in all_mb_metrics:
+                    del all_mb_metrics["loss"]  # 避免重复记录loss
+                metrics.update(all_mb_metrics)
+                
+                # 记录生成长度相关指标
+                if "input_ids" in train_data:
+                    input_lengths = (train_data["input_ids"] != 0).sum(dim=1)
+                    metrics.update({
+                        "avg_input_length": input_lengths.float().mean().item(),
+                        "max_input_length": input_lengths.max().item(),
+                        "min_input_length": input_lengths.min().item(),
+                        "input_length_std": input_lengths.float().std().item(),
+                    })
+                
+                # 记录当前最佳验证loss（如果可用）
+                if "val_loss" in distillation_save_state and distillation_save_state["val_loss"] is not None:
+                    current_best_val_loss = distillation_save_state["val_loss"]
+                    metrics["best_val_loss"] = current_best_val_loss
+                
+                # 记录蒸馏参数
+                metrics.update({
+                    "kl_type": 1.0 if kl_type == "forward" else (2.0 if kl_type == "reverse" else 3.0),
+                    "lambda": lambda_,
+                    "mixed_kl_weight": mixed_kl_weight,
+                })
+                
+                # 使用prefix="train"记录所有指标，避免重复
                 if logger is not None:
-                    # 记录主要训练损失
-                    logger.log_metrics({"train/loss": loss}, step)
-                    
-                    # 记录生成长度相关指标
-                    if "input_ids" in train_data:
-                        input_lengths = (train_data["input_ids"] != 0).sum(dim=1)
-                        avg_input_length = input_lengths.float().mean().item()
-                        max_input_length = input_lengths.max().item()
-                        min_input_length = input_lengths.min().item()
-                        
-                        logger.log_metrics({
-                            "train/avg_input_length": avg_input_length,
-                            "train/max_input_length": max_input_length,
-                            "train/min_input_length": min_input_length,
-                            "train/input_length_std": input_lengths.float().std().item(),
-                        }, step)
-                    
-                    # 记录当前最佳验证loss（如果可用）
-                    if "val_loss" in distillation_save_state and distillation_save_state["val_loss"] is not None:
-                        current_best_val_loss = distillation_save_state["val_loss"]
-                        logger.log_metrics({"train/best_val_loss": current_best_val_loss}, step)
-                        #print(f"  🔍 [Training] Current Best Val Loss = {current_best_val_loss:.6f}")
-                    
-                    # 记录蒸馏参数
-                    logger.log_metrics({
-                        "train/kl_type": 1.0 if kl_type == "forward" else (2.0 if kl_type == "reverse" else 3.0),
-                        "train/lambda": lambda_,
-                        "train/mixed_kl_weight": mixed_kl_weight,
-                    }, step)
+                    logger.log_metrics(metrics, step, prefix="train")
                     
                     # 打印训练loss信息
                     print(f"  ✅✅✅ [Training] Step {step}: Loss = {loss:.6f}")
