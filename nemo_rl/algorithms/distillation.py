@@ -1765,10 +1765,38 @@ def distillation_train(
                 }
                 
                 # 添加其他微批次指标（但不包含loss，避免重复）
+                # 修复：正确处理数据类型，确保所有值都是数值类型
                 all_mb_metrics = train_results["all_mb_metrics"].copy()
                 if "loss" in all_mb_metrics:
                     del all_mb_metrics["loss"]  # 避免重复记录loss
-                metrics.update(all_mb_metrics)
+                
+                # 安全地添加微批次指标，确保数据类型正确
+                for k, v in all_mb_metrics.items():
+                    if isinstance(v, (list, tuple)):
+                        # 如果是list/tuple，计算平均值
+                        if len(v) > 0:
+                            if isinstance(v[0], (int, float)):
+                                metrics[k] = sum(v) / len(v)
+                            elif hasattr(v[0], 'numpy'):
+                                metrics[k] = sum(x.numpy() for x in v) / len(v)
+                            else:
+                                # 跳过无法处理的类型
+                                continue
+                        else:
+                            # 空list，跳过
+                            continue
+                    elif isinstance(v, (int, float)):
+                        # 直接使用数值
+                        metrics[k] = v
+                    elif hasattr(v, 'numpy'):
+                        # 转换为numpy
+                        metrics[k] = v.numpy()
+                    elif hasattr(v, 'item'):
+                        # 转换为Python标量
+                        metrics[k] = v.item()
+                    else:
+                        # 跳过无法处理的类型
+                        continue
                 
                 # 记录生成长度相关指标
                 if "input_ids" in train_data:
