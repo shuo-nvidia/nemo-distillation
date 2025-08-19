@@ -902,7 +902,6 @@ class DistillationLossFn(LossFunction):
             "temperature": temperature,
             "alpha": alpha,
             "kl_type_numeric": 1.0 if kl_type == "forward" else (2.0 if kl_type == "reverse" else 3.0),
-            "lambda": lambda_,
             "mixed_kl_weight": data.get("mixed_kl_weight", 0.5),
             "num_valid_samples": expected_batch_size,
             # 只保留数值类型的形状信息，确保metrics累加正常工作

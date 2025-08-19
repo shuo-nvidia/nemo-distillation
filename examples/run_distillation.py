@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-蒸馏训练脚本 - 重构为单一Policy模式（参考GRPO）
+蒸馏训练脚本 - 重构为单一Policy模式
 使用单一Policy对象，避免Ray命名冲突和资源冲突
 """
 
@@ -70,8 +70,6 @@ def hf_data_processor(
     # 安全检查：确保prompt存在
     if task_data_spec.prompt is None:
         print(f"  ❌ TaskDataSpec.prompt is None!")
-        print(f"  🔍 task_data_spec.prompt_file: {task_data_spec.prompt_file}")
-        print(f"  🔍 Current working directory: {os.getcwd()}")
         if task_data_spec.prompt_file:
             print(f"  🔍 Absolute prompt file path: {os.path.abspath(task_data_spec.prompt_file)}")
             if os.path.exists(task_data_spec.prompt_file):
@@ -101,24 +99,10 @@ def hf_data_processor(
     
     # 创建用户消息，使用prompt模板
     try:
-        # 使用与GRPO math任务相同的格式化方法
         # math.txt 使用 {} 位置占位符，可以直接用 format(problem)
         formatted_content = task_data_spec.prompt.format(problem)
-        '''
-        print(f"  🔍 [DEBUG] Using GRPO-style formatting with {{}} placeholder")
-        print(f"  🔍 [DEBUG] Prompt template: {task_data_spec.prompt[:100]}...")
-        print(f"  🔍 [DEBUG] Problem: {problem[:100]}...")
-        print(f"  🔍 [DEBUG] Formatted content: {formatted_content[:100]}...")
-        '''
     except Exception as e:
         print(f"  ❌ [DEBUG] Failed to format prompt: {e}")
-        '''
-        print(f"  🔍 [DEBUG] task_data_spec.prompt type: {type(task_data_spec.prompt)}")
-        print(f"  🔍 [DEBUG] task_data_spec.prompt value: {task_data_spec.prompt}")
-        print(f"  🔍 [DEBUG] problem type: {type(problem)}")
-        print(f"  🔍 [DEBUG] problem value: {problem}")
-        print(f"  🔍 [DEBUG] Available placeholders in prompt: {[s for s in task_data_spec.prompt.split('{') if '}' in s]}")
-        '''
         raise
     
     user_message = {
@@ -144,7 +128,6 @@ def hf_data_processor(
 
     loss_multiplier = 1.0
     if length > max_seq_length:
-        # 修复：与GRPO版本完全一致，正确截断序列
         # 计算每个message可以保留的token数量
         tokens_per_message = max_seq_length // len(message_log)
         for chat_message in message_log:
@@ -199,11 +182,7 @@ def setup_data(
     print(f"  📁 System prompt file path: {system_prompt_file}")
     
     # 检查文件是否存在
-    '''
-    print(f"  🔍 Checking prompt file: {prompt_file}")
-    print(f"  🔍 Current working directory: {os.getcwd()}")
-    print(f"  🔍 Absolute prompt file path: {os.path.abspath(prompt_file)}")
-    '''
+
     if os.path.exists(prompt_file):
         print(f"  ✅ Prompt file exists: {prompt_file}")
         try:
@@ -220,10 +199,8 @@ def setup_data(
         # 尝试列出目录内容
         prompt_dir = os.path.dirname(prompt_file)
         if os.path.exists(prompt_dir):
-            print(f"  🔍 Prompt directory exists: {prompt_dir}")
             try:
                 files = os.listdir(prompt_dir)
-                print(f"  🔍 Files in prompt directory: {files}")
             except Exception as e:
                 print(f"  ❌ Failed to list directory: {e}")
         else:
@@ -272,12 +249,7 @@ def setup_data(
             raise RuntimeError(f"Failed to create TaskDataSpec: {e}")
     
     # 检查TaskDataSpec是否正确初始化
-    '''
-    print(f"  🔍 TaskDataSpec.prompt is None: {math_task_spec.prompt is None}")
-    print(f"  🔍 TaskDataSpec.system_prompt is None: {math_task_spec.system_prompt is None}")
-    print(f"  🔍 TaskDataSpec.prompt_file: {math_task_spec.prompt_file}")
-    print(f"  🔍 TaskDataSpec.system_prompt_file: {math_task_spec.system_prompt_file}")
-    '''
+
     if math_task_spec.prompt is not None:
         print(f"  📝 TaskDataSpec.prompt (first 100 chars): {math_task_spec.prompt[:100]}...")
         print(f"  📝 TaskDataSpec.prompt length: {len(math_task_spec.prompt)} characters")
@@ -314,17 +286,10 @@ def setup_data(
         raise ValueError(f"No processor for dataset {data_config['dataset_name']}.")
 
     task_data_processors: dict[str, tuple[TaskDataSpec, TaskDataProcessFnCallable]] = {}
-    # 为所有任务设置默认处理器，但不使用lambda函数
     task_data_processors["math"] = (math_task_spec, hf_data_processor)
     
     # 添加调试信息，验证TaskDataSpec的状态
-    '''
-    print(f"  🔍 TaskDataSpec.prompt is None: {math_task_spec.prompt is None}")
-    print(f"  🔍 TaskDataSpec.prompt_file: {math_task_spec.prompt_file}")
-    print(f"  🔍 TaskDataSpec.prompt length: {len(math_task_spec.prompt) if math_task_spec.prompt else 'None'}")
-    print(f"  🔍 task_data_processors['math'][0].prompt is None: {task_data_processors['math'][0].prompt is None}")
-    print(f"  🔍 task_data_processors['math'][0] is math_task_spec: {task_data_processors['math'][0] is math_task_spec}")
-    '''
+
     math_env = MathEnvironment.options(  # type: ignore # it's wrapped with ray.remote
         runtime_env={
             "py_executable": get_actor_python_env(
@@ -340,20 +305,6 @@ def setup_data(
         task_data_processors,
         max_seq_length=data_config["max_input_seq_length"],
     )
-    '''
-    # 添加调试信息
-    print(f"  🔍 Dataset length: {len(dataset)}")
-    print(f"  🔍 First datum keys: {list(data.formatted_ds['train'][0].keys())}")
-    print(f"  🔍 TaskDataSpec.prompt length: {len(math_task_spec.prompt) if math_task_spec.prompt else 'None'}")
-    '''
-    # 测试第一个数据项的处理
-    try:
-        first_datum = dataset[0]
-        print(f"  ✅ First datum processed successfully: {first_datum.keys()}")
-    except Exception as e:
-        print(f"  ❌ Failed to process first datum: {e}")
-        import traceback
-        traceback.print_exc()
 
     val_dataset: Optional[AllTaskProcessedDataset] = None
     if data.formatted_ds["validation"]:
@@ -415,9 +366,6 @@ def main() -> None:
         config["policy"]["generation"] = configure_generation_config(
             config["policy"]["generation"], tokenizer
         )
-        print(f"  ✅ Generation config configured with tokenizer settings")
-        print(f"  🔍 pad_token_id: {config['policy']['generation'].get('pad_token_id', 'Not set')}")
-        print(f"  🔍 stop_token_ids: {config['policy']['generation'].get('stop_token_ids', 'Not set')}")
     else:
         print(f"  ⚠️ No generation config found, this may cause issues")
     

@@ -66,7 +66,6 @@ class DistillationConfig(TypedDict):
     teacher_model_path: str
     
     # 蒸馏策略参数
-    lambda_: float  # 学生自生成数据占比
     kl_type: str    # KL散度类型：forward, reverse, mixed
     generate_strategy: dict[str, Any]  # 生成策略参数
     
@@ -561,7 +560,6 @@ def validate(
                             "teacher_logits": torch.randn_like(val_student_logits) * 0.1,
                             # 传递蒸馏参数
                             "kl_type": kl_type,
-                            "lambda_": lambda_,
                             "mixed_kl_weight": mixed_kl_weight,
                         }
                         
@@ -606,7 +604,6 @@ def validate(
                         "teacher_logits": torch.randn_like(val_student_logits) * 0.5,
                         # 传递蒸馏参数
                         "kl_type": kl_type,
-                        "lambda_": lambda_,
                         "mixed_kl_weight": mixed_kl_weight,
                     }
                     
@@ -713,12 +710,11 @@ def distillation_train(
     # 设置生成策略
     generate_strategy = distillation_config.get("generate_strategy", {})
     max_length = generate_strategy.get("max_length", 2048)
-    temperature = generate_strategy.get("temperature", 0.1)
+    temperature = generate_strategy.get("temperature", 1.0)
     decoding_method = generate_strategy.get("decoding_method", "greedy")
     
     # 设置KL散度类型
-    kl_type = distillation_config.get("kl_type", "forward")
-    lambda_ = distillation_config.get("lambda_", 1.0)
+    kl_type = distillation_config.get("kl_type", "mixed")  # 修复：默认值应该是"mixed"
     mixed_kl_weight = distillation_config.get("mixed_kl_weight", 0.5)  # 混合KL权重
     
     # 参考GRPO的逻辑：如果policy_generation为None，使用policy作为生成接口
@@ -1615,7 +1611,6 @@ def distillation_train(
                         # 将蒸馏参数添加到train_data中，供损失函数使用
                         # 注意：这些是标量值，不是张量，所以不会传递给worker
                         train_data["kl_type"] = kl_type
-                        train_data["lambda_"] = lambda_
                         train_data["mixed_kl_weight"] = mixed_kl_weight
                         
                         # 关键修复：正确传递token mask给损失函数
@@ -1816,7 +1811,6 @@ def distillation_train(
                 # 记录蒸馏参数
                 metrics.update({
                     "kl_type": 1.0 if kl_type == "forward" else (2.0 if kl_type == "reverse" else 3.0),
-                    "lambda": lambda_,
                     "mixed_kl_weight": mixed_kl_weight,
                 })
                 
@@ -1918,7 +1912,6 @@ def distillation_train(
                             # 记录验证时的蒸馏参数 - 只记录到eval/命名空间
                             logger.log_metrics({
                                 "eval/kl_type": 1.0 if kl_type == "forward" else (2.0 if kl_type == "reverse" else 3.0),
-                                "eval/lambda": lambda_,
                                 "eval/mixed_kl_weight": mixed_kl_weight,
                             }, step + 1)
                         
