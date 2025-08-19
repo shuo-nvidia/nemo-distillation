@@ -1861,33 +1861,19 @@ def distillation_train(
                         
                         # 记录验证指标
                         if val_metrics:
-                            # 记录验证loss - 添加eval/loss记录
+                            # 记录验证loss - 只记录到eval/命名空间，与GRPO/SFT保持一致
                             if "val_loss" in val_metrics:
-                                # 记录到validation/命名空间
-                                logger.log_metrics({"validation/val_loss": val_metrics["val_loss"]}, step + 1)
-                                # 同时记录到eval/命名空间，与GRPO/SFT保持一致
                                 logger.log_metrics({"eval/loss": val_metrics["val_loss"]}, step + 1)
                                 distillation_save_state["val_loss"] = val_metrics["val_loss"]
                                 print(f"  ✅✅✅ [Validation] Step {step + 1}: Val Loss = {val_metrics['val_loss']:.6f}")
-                                print(f"  🔍 [Eval] Step {step + 1}: Eval Loss = {val_metrics['val_loss']:.6f}")
                             
-                            # 记录其他验证指标
+                            # 记录其他验证指标 - 只记录到eval/命名空间
                             for k, v in val_metrics.items():
                                 if k != "val_loss" and isinstance(v, (int, float)):
-                                    logger.log_metrics({f"validation/{k}": v}, step + 1)
-                                    # 同时记录到eval/命名空间
                                     logger.log_metrics({f"eval/{k}": v}, step + 1)
                             
-                            # 记录验证时的生成长度信息
+                            # 记录验证时的生成长度信息 - 只记录到eval/命名空间
                             if "val_avg_sequence_length" in val_metrics:
-                                # 记录到validation/命名空间
-                                logger.log_metrics({
-                                    "validation/avg_sequence_length": val_metrics["val_avg_sequence_length"],
-                                    "validation/max_sequence_length": val_metrics.get("val_max_sequence_length", 0),
-                                    "validation/min_sequence_length": val_metrics.get("val_min_sequence_length", 0),
-                                }, step + 1)
-                                
-                                # 同时记录到eval/命名空间
                                 logger.log_metrics({
                                     "eval/avg_sequence_length": val_metrics["val_avg_sequence_length"],
                                     "eval/max_sequence_length": val_metrics.get("val_max_sequence_length", 0),
@@ -1899,11 +1885,8 @@ def distillation_train(
                                 print(f"  🔍 [Validation] Max Sequence Length = {val_metrics.get('val_max_sequence_length', 0)}")
                                 print(f"  🔍 [Validation] Min Sequence Length = {val_metrics.get('val_min_sequence_length', 0)}")
                             
-                            # 记录验证时的蒸馏参数
+                            # 记录验证时的蒸馏参数 - 只记录到eval/命名空间
                             logger.log_metrics({
-                                "validation/kl_type": 1.0 if kl_type == "forward" else (2.0 if kl_type == "reverse" else 3.0),
-                                "validation/lambda": lambda_,
-                                "validation/mixed_kl_weight": mixed_kl_weight,
                                 "eval/kl_type": 1.0 if kl_type == "forward" else (2.0 if kl_type == "reverse" else 3.0),
                                 "eval/lambda": lambda_,
                                 "eval/mixed_kl_weight": mixed_kl_weight,
@@ -1922,7 +1905,6 @@ def distillation_train(
                     try:
                         logger.log_metrics({
                             "step": step,
-                            "loss": loss.item(), # Changed from loss.item() to kl_loss.item()
                             "consumed_samples": distillation_save_state["consumed_samples"],
                         })
                         print(f"  ✅ Metrics logged successfully")
