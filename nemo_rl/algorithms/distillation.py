@@ -424,34 +424,32 @@ def refit_student_generation(
                         if generation_config['decoding_method'] == 'greedy':
                             # 对于greedy解码，设置top_k=1
                             student_generation.cfg['top_k'] = 1
-                            print(f"  🔍 Set top_k=1 for greedy decoding")
+
                         elif generation_config['decoding_method'] == 'top_k':
                             # 对于top_k解码，使用默认值或配置值
                             if 'top_k' in generation_config:
                                 student_generation.cfg['top_k'] = generation_config['top_k']
-                                print(f"  🔍 Updated top_k to: {generation_config['top_k']}")
+
                         elif generation_config['decoding_method'] == 'top_p':
                             # 对于top_p解码，确保top_p被设置
                             if 'top_p' in generation_config:
                                 student_generation.cfg['top_p'] = generation_config['top_p']
-                                print(f"  🔍 Updated top_p to: {generation_config['top_p']}")
+                                
                     
                     # 更新最大生成长度 - 参考GRPO：max_new_tokens通常等于max_total_sequence_length
                     if 'max_new_tokens' in generation_config:
                         if 'max_new_tokens' in student_generation.cfg:
                             student_generation.cfg['max_new_tokens'] = generation_config['max_new_tokens']
-                            print(f"  🔍 Updated max_new_tokens to: {generation_config['max_new_tokens']}")
                     else:
                         # 如果没有配置max_new_tokens，使用GRPO的默认行为
                         # 从master_config获取max_total_sequence_length作为max_new_tokens
                         try:
                             max_seq_len = master_config["policy"]["max_total_sequence_length"]
                             student_generation.cfg['max_new_tokens'] = max_seq_len
-                            print(f"  🔍 Using GRPO-style max_new_tokens = max_total_sequence_length: {max_seq_len}")
+                            
                         except Exception as e:
-                            print(f"  ⚠️ Warning: Failed to get max_total_sequence_length: {e}")
                             student_generation.cfg['max_new_tokens'] = 512  # 使用合理的默认值
-                            print(f"  🔍 Using fallback max_new_tokens: 512")
+                            
                         
                 print(f"  ✅ Generation configuration updated successfully")
             except Exception as e:
@@ -792,15 +790,11 @@ def distillation_train(
                 # 2. 生成响应（使用与GRPO相同的rollout机制）
                 print("▶ Generating responses with student model...")
                 print(f"  🔍 Using generation config: max_length={max_length}, temperature={temperature}, decoding_method={decoding_method}")
-                #print(f"  🔍 student_generation type: {type(student_generation)}")
-                
+
                 # 检查是否需要refit
                 if student_generation is not None:
-                    #print(f"  🔍 NEED_REFIT: {NEED_REFIT}, STUDENT_GENERATION_STALE: {STUDENT_GENERATION_STALE}")
+                    
                     if NEED_REFIT or STUDENT_GENERATION_STALE:
-                        # print(f"  🔍 Refitting student generation...")
-                        pass
-                        # 传递生成配置参数（参考GRPO实现，但增加蒸馏特定的配置更新）
                         generation_config = {
                             'temperature': temperature,
                             'decoding_method': decoding_method,
