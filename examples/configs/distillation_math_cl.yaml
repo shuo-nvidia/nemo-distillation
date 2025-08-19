@@ -67,7 +67,7 @@ policy:
 
   generation:
     backend: "vllm"  
-    max_new_tokens: 128 
+    max_new_tokens: ${policy.max_total_sequence_length}  # 引用policy配置
     temperature: 1.0
     top_p: 1.0
     top_k: null
@@ -80,7 +80,7 @@ policy:
       tensor_parallel_size: 1
       pipeline_parallel_size: 1
       gpu_memory_utilization: 0.5  
-      max_model_len: 1152 
+      max_model_len: ${policy.max_total_sequence_length}  # 与policy保持一致
       enforce_eager: False
 
       distributed_executor_backend: null
@@ -109,7 +109,7 @@ distillation:
   mixed_kl_weight: 0.5  # 混合KL时的权重系数（当kl_type为"mixed"时使用）
   generate_strategy:  # 学生生成参数
     max_length: ${policy.max_total_sequence_length}  # 与policy配置保持一致
-    max_new_tokens: 128  # 限制生成token数量，避免序列过长
+    max_new_tokens: 128  # 限制生成token数量，避免序列过长（这个值应该小于max_total_sequence_length）
     temperature: 0.7  # 采样温度（控制生成随机性，默认为0.1）
     decoding_method: "top_p"  # 解码方式（如greedy、top_k）
   

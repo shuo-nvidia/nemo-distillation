@@ -539,7 +539,7 @@ def validate(
                         input_batch=val_batch,
                         tokenizer=tokenizer,
                         task_to_env={},  # 蒸馏任务不需要环境交互
-                        max_seq_len=min(max_length, master_config["policy"]["max_total_sequence_length"]),  # 使用配置的max_length
+                        max_seq_len=master_config["policy"]["max_total_sequence_length"],  # 直接使用policy配置
                         max_rollout_turns=1,  # 蒸馏只需要单轮生成
                         greedy=(decoding_method == "greedy"),  # 根据decoding_method决定是否greedy
                     )
@@ -871,36 +871,56 @@ def distillation_train(
                     
                     # 关键修复：参考GRPO的实现，直接使用max_total_sequence_length作为rollout的max_seq_len
                     max_seq_len = master_config["policy"]["max_total_sequence_length"]
+                    max_new_tokens = distillation_config["generate_strategy"]["max_new_tokens"]
                     
                     print(f"  🔍 Using GRPO-style sequence length handling:")
                     print(f"    - max_seq_len (from policy.max_total_sequence_length): {max_seq_len}")
+                    print(f"    - max_new_tokens: {max_new_tokens}")
                     print(f"    - Note: Input and generation share this length limit (like GRPO)")
                     
-                    # 检查并截断过长的序列，但使用更宽松的限制
-                    # 参考GRPO：输入和生成共享序列长度，不需要严格分离
-                    max_input_len = max_seq_len  # 允许输入占用整个序列长度
+                    # 修复：确保输入+生成不超过最大长度
+                    # 参考GRPO：输入和生成共享序列长度，但需要预留生成空间
+                    max_input_len = max_seq_len - max_new_tokens
                     
                     print(f"  🔍 Sequence length check: max_seq_len={max_seq_len}, max_input_len={max_input_len}")
                     
-                    # 检查并截断过长的序列
+                    # 修复：改进输入截断逻辑，避免remaining_length变成负数
                     for i, message_log in enumerate(repeated_batch["message_log"]):
                         total_length = sum(len(msg["token_ids"]) for msg in message_log)
                         if total_length > max_input_len:
                             print(f"  ⚠️ Sample {i} sequence length {total_length} exceeds max_input_len {max_input_len}, truncating...")
-                            # 截断到最大允许长度，但确保至少保留一些内容
-                            remaining_length = max_input_len
+                            
+                            # 修复：重新计算需要保留的tokens数量
+                            tokens_to_keep = max_input_len
+                            
+                            # 从第一个消息开始，按顺序保留tokens
                             for msg in message_log:
-                                if remaining_length <= 0:
-                                    # 不要完全清空，保留至少一个token
+                                if tokens_to_keep <= 0:
+                                    # 如果已经用完所有可用tokens，只保留第一个token
                                     if len(msg["token_ids"]) > 0:
                                         msg["token_ids"] = msg["token_ids"][:1]
                                 else:
                                     msg_length = len(msg["token_ids"])
-                                    if msg_length > remaining_length:
-                                        msg["token_ids"] = msg["token_ids"][:remaining_length]
-                                        remaining_length = 0
+                                    if msg_length > tokens_to_keep:
+                                        # 如果当前消息太长，截断到可用长度
+                                        msg["token_ids"] = msg["token_ids"][:tokens_to_keep]
+                                        tokens_to_keep = 0
                                     else:
-                                        remaining_length -= msg_length
+                                        # 如果当前消息可以完全保留
+                                        tokens_to_keep -= msg_length
+                            
+                            # 重新计算长度并验证
+                            new_total_length = sum(len(msg["token_ids"]) for msg in message_log)
+                            print(f"  ✅ Truncated to {new_total_length} tokens")
+                            
+                            # 验证截断后的长度不超过限制
+                            if new_total_length > max_input_len:
+                                print(f"  ❌ Warning: Truncation failed, length still {new_total_length} > {max_input_len}")
+                                # 强制截断到限制
+                                for msg in message_log:
+                                    if len(msg["token_ids"]) > 0:
+                                        msg["token_ids"] = msg["token_ids"][:1]
+                                        break
                     
                     # 最终验证：确保所有序列都有内容
                     print(f"  🔍 Final validation before rollout:")
@@ -917,7 +937,7 @@ def distillation_train(
                             input_batch=repeated_batch,  # 使用重复后的batch
                             tokenizer=tokenizer,
                             task_to_env=distillation_task_env,  # 传递Ray actor虚拟环境
-                            max_seq_len=min(max_length, max_seq_len),  # 使用计算好的max_seq_len
+                            max_seq_len=max_seq_len,  # 直接使用policy的max_total_sequence_length
                             max_rollout_turns=1,  # 蒸馏只需要单轮生成
                             greedy=(decoding_method == "greedy"),  # 根据decoding_method决定是否greedy
                         )
@@ -949,6 +969,11 @@ def distillation_train(
                                     # 如果序列为空，添加pad token
                                     sample_tokens = [tokenizer.pad_token_id]
                                     print(f"  ⚠️ Empty sequence detected, added pad token")
+                                
+                                # 修复：在fallback中也应用长度限制
+                                if len(sample_tokens) > max_input_len:
+                                    print(f"  ⚠️ Fallback: Sample tokens {len(sample_tokens)} exceeds max_input_len {max_input_len}, truncating...")
+                                    sample_tokens = sample_tokens[:max_input_len]
                                 
                                 input_ids.append(sample_tokens)
                             
