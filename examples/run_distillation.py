@@ -380,7 +380,6 @@ def main() -> None:
     (
         student_policy,
         student_generation,
-        cluster,
         dataloader,
         val_dataloader,
         tokenizer,  # 添加tokenizer
@@ -394,7 +393,6 @@ def main() -> None:
     distillation_train(
         student_policy,
         student_generation,
-        cluster,
         dataloader,
         val_dataloader,
         tokenizer,  # 传递tokenizer参数
