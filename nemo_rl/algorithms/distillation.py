@@ -971,28 +971,57 @@ def distillation_train(
                     
                     train_data = BatchedDataDict[DistillationLossDataDict](train_data_dict)
 
-                    # ensure data is on the correct device
-                    train_data.to("cpu")  
-                    
                     # teacher model forward propagation (need to be implemented separately because of different model sizes)
                     with torch.no_grad():
                         teacher_policy.prepare_for_lp_inference()
                         teacher_logprobs=teacher_policy.get_logprobs(train_data)["logprobs"]
+                        # Ensure teacher_logprobs is on the same device as the model
+                        if hasattr(teacher_policy, 'device'):
+                            teacher_logprobs = teacher_logprobs.to(teacher_policy.device)
                         train_data["teacher_logprobs"] = teacher_logprobs
                
+                # Move all data to the same device as the student policy
+                # This ensures device consistency and prevents CUDA-CPU device mismatch errors
+                if hasattr(student_policy, 'device'):
+                    target_device = student_policy.device
+                else:
+                    # Fallback to CUDA if device is not explicitly set
+                    target_device = "cuda"
                 
-                # train student model
-                worker_train_data = BatchedDataDict[DistillationLossDataDict](train_data)
+                # Move train_data to the target device
+                for key, value in train_data.items():
+                    if isinstance(value, torch.Tensor):
+                        train_data[key] = value.to(target_device)
+                    elif hasattr(value, 'to') and callable(getattr(value, 'to', None)):
+                        # Handle other objects that might have a .to() method
+                        try:
+                            train_data[key] = value.to(target_device)
+                        except:
+                            # If .to() fails, keep the original value
+                            pass
            
                 with timer.time("policy_training"):
                     try:
-                        train_results = student_policy.train(worker_train_data, loss_fn)
+                        train_results = student_policy.train(train_data, loss_fn)
                     except Exception as e:
                         raise
 
          
                 # build training metrics
                 metrics = {}
+                
+                # Extract loss from train_results
+                if "all_mb_metrics" in train_results and "loss" in train_results["all_mb_metrics"]:
+                    loss_list = train_results["all_mb_metrics"]["loss"]
+                    if isinstance(loss_list, (list, tuple)) and len(loss_list) > 0:
+                        loss = sum(loss_list) / len(loss_list)
+                    else:
+                        loss = loss_list
+                    metrics["loss"] = loss
+                else:
+                    # Fallback if loss is not available
+                    loss = 0.0
+                    metrics["loss"] = loss
                 
                 # add other micro-batch metrics 
                 # correctly handle data type, ensure all values are numeric
