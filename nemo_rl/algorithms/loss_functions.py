@@ -817,16 +817,7 @@ class DistillationLossFn(LossFunction):
         student_logits = next_token_logits
         teacher_logprobs = None
         
-        if "teacher_logprobs" in data:
-            teacher_logprobs = data["teacher_logprobs"]
-            # Ensure teacher_logprobs is not None and on the same device as student_logits
-            if teacher_logprobs is None:
-                raise ValueError("teacher_logprobs is required for distillation loss but was None")
-            # Ensure device consistency
-            if teacher_logprobs.device != student_logits.device:
-                teacher_logprobs = teacher_logprobs.to(student_logits.device)
-        else:
-            raise ValueError("teacher_logprobs is required for distillation loss but not found in data")
+        teacher_logprobs = data["teacher_logprobs"]
 
 
         temperature = getattr(self, 'temperature', 1.0)
@@ -837,9 +828,7 @@ class DistillationLossFn(LossFunction):
         student_logprobs = torch.log_softmax(student_logits, dim=-1)
         # Gather logprobs at the actual token positions
         target_tokens = data["input_ids"]  # Shape: (batch_size, sequence_length)
-        # Ensure target_tokens is on the same device as student_logprobs
-        if target_tokens.device != student_logprobs.device:
-            target_tokens = target_tokens.to(student_logprobs.device)
+
         student_logprobs = student_logprobs.gather(dim=-1, index=target_tokens.unsqueeze(-1)).squeeze(-1)
 
         
@@ -871,11 +860,6 @@ class DistillationLossFn(LossFunction):
             token_mask = data["token_mask"]
             sample_mask = data["sample_mask"]
             if len(token_mask.shape) == 2 and token_mask.shape[1] == expected_seq_len:
-                # Ensure masks are on the same device as kl_loss
-                if token_mask.device != kl_loss.device:
-                    token_mask = token_mask.to(kl_loss.device)
-                if sample_mask.device != kl_loss.device:
-                    sample_mask = sample_mask.to(kl_loss.device)
                 # Combine token_mask and sample_mask: mask = token_mask * sample_mask.unsqueeze(-1)
                 mask = token_mask * sample_mask.unsqueeze(-1)
                 kl_loss = kl_loss * mask
