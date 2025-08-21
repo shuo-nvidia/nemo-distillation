@@ -1,11 +1,11 @@
 
 policy:
-  model_name: "Qwen/Qwen2.5-7B" 
+  model_name: "Qwen/Qwen2.5-1.5B-Instruct" 
   tokenizer:
     name: ${policy.model_name} ## specify if you'd like to use a tokenizer different from the model's default
-  train_global_batch_size: 64  
+  train_global_batch_size: 8  
   train_micro_batch_size: 1  
-  generation_batch_size: 32 
+  generation_batch_size: 8 
   logprob_batch_size: 2  
   max_total_sequence_length: 1024  
   precision: "bfloat16"
@@ -102,7 +102,7 @@ loss_fn:
 
 # distillation algorithm config
 distillation:
-  teacher_model_path: "Qwen/Qwen2.5-32B-Instruct"
+  teacher_model_path: "Qwen/Qwen2.5-3B-Instruct"
   
   # distillation policy parameters
   generate_strategy:  # student generation parameters
@@ -115,9 +115,9 @@ distillation:
   eval_steps: 20
   save_steps: 500
   logging_steps: 10
-  num_prompts_per_step: 16  
+  num_prompts_per_step: 8  
   num_generations_per_prompt: 8  
-  val_batch_size: 64  
+  val_batch_size: 8  
   val_period: 100
   val_at_start: false
   max_val_samples: 100

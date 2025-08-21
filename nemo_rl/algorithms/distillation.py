@@ -375,46 +375,6 @@ def refit_student_generation(
         student_policy.offload_before_refit()
         student_generation.prepare_for_generation(tags=["weights"])
         
-        # Update generation configuration parameters (e.g., temperature, decoding_method, etc.)
-        if generation_config is not None:
-            try:
-                # Try to update the generation backend configuration
-                if hasattr(student_generation, 'cfg') and isinstance(student_generation.cfg, dict):
-                    # Update temperature parameter
-                    if 'temperature' in generation_config:
-                        student_generation.cfg['temperature'] = generation_config['temperature']
-                    # Update decoding method related parameters
-                    if 'decoding_method' in generation_config:
-                        if generation_config['decoding_method'] == 'greedy':
-                            # For greedy decoding, set top_k=1
-                            student_generation.cfg['top_k'] = 1
-
-                        elif generation_config['decoding_method'] == 'top_k':
-                            # For top_k decoding, use default value or configured value
-                            if 'top_k' in generation_config:
-                                student_generation.cfg['top_k'] = generation_config['top_k']
-
-                        elif generation_config['decoding_method'] == 'top_p':
-                            # For top_p decoding, ensure top_p is set
-                            if 'top_p' in generation_config:
-                                student_generation.cfg['top_p'] = generation_config['top_p']
-                                
-                    
-                    # Update maximum generation length
-                    if 'max_new_tokens' in generation_config:
-                        if 'max_new_tokens' in student_generation.cfg:
-                            student_generation.cfg['max_new_tokens'] = generation_config['max_new_tokens']
-                    else:
-                        # If max_new_tokens is not configured
-                        # Get max_total_sequence_length from master_config as max_new_tokens
-                        try:
-                            max_seq_len = master_config["policy"]["max_total_sequence_length"]
-                            student_generation.cfg['max_new_tokens'] = max_seq_len
-                            
-                        except Exception as e:
-                            student_generation.cfg['max_new_tokens'] = 512  # Use reasonable default value
-            except Exception as e:
-                raise e
 
     # Create a context manager that does nothing when timer is None
     timer_context = (
@@ -955,7 +915,6 @@ def distillation_train(
                         distillation_safe_data[key] = value
 
                 with timer.time("training_prep"):
-
                     student_policy.prepare_for_training()  
                     STUDENT_GENERATION_STALE = True  # *** MARK AS STALE AFTER TRAINING ***
                 
