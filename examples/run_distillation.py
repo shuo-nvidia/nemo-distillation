@@ -1,8 +1,16 @@
-#!/usr/bin/env python3
-"""
-蒸馏训练脚本 - 重构为单一Policy模式
-使用单一Policy对象，避免Ray命名冲突和资源冲突
-"""
+# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 import argparse
 import os
@@ -63,25 +71,21 @@ def hf_data_processor(
     datum_dict: dict[str, Any],
     task_data_spec: TaskDataSpec,
     tokenizer: TokenizerType,
-    max_seq_length: int,  # 改为必需参数，与GRPO版本一致
+    max_seq_length: int,  # required parameter
     idx: int,
 ) -> DatumSpec:
-    """处理Hugging Face格式的数据，转换为NeMo-RL格式（与GRPO版本保持一致）"""
-    # 安全检查：确保prompt存在
+    """Process Hugging Face format data into NeMo-RL format"""
+    # safety check: ensure prompt exists
     if task_data_spec.prompt is None:
-        print(f"  ❌ TaskDataSpec.prompt is None!")
         if task_data_spec.prompt_file:
-            print(f"  🔍 Absolute prompt file path: {os.path.abspath(task_data_spec.prompt_file)}")
             if os.path.exists(task_data_spec.prompt_file):
-                print(f"  🔍 Prompt file exists but could not be loaded")
                 try:
                     with open(task_data_spec.prompt_file, 'r', encoding='utf-8') as f:
                         content = f.read()
-                        print(f"  📝 File content (first 100 chars): {content[:100]}...")
                 except Exception as e:
-                    print(f"  ❌ Failed to read file: {e}")
+                    raise ValueError(f"Failed to read file: {e}")
             else:
-                print(f"  🔍 Prompt file does not exist")
+                raise ValueError(f"Prompt file does not exist: {task_data_spec.prompt_file}")
         
         raise ValueError(
             f"TaskDataSpec.prompt is None. This usually means the prompt file "
@@ -90,20 +94,16 @@ def hf_data_processor(
             f"Absolute prompt file path: {os.path.abspath(task_data_spec.prompt_file) if task_data_spec.prompt_file else 'None'}"
         )
 
-    # 获取原始消息数据
     messages = datum_dict["messages"]
     problem = messages[0]["content"]
     extra_env_info = {"ground_truth": messages[1]["content"]}
 
     message_log: LLMMessageLogType = []
     
-    # 创建用户消息，使用prompt模板
     try:
-        # math.txt 使用 {} 位置占位符，可以直接用 format(problem)
         formatted_content = task_data_spec.prompt.format(problem)
     except Exception as e:
-        print(f"  ❌ [DEBUG] Failed to format prompt: {e}")
-        raise
+        raise ValueError(f"Failed to format prompt: {e}")
     
     user_message = {
         "role": "user",
@@ -128,12 +128,12 @@ def hf_data_processor(
 
     loss_multiplier = 1.0
     if length > max_seq_length:
-        # 计算每个message可以保留的token数量
+        # calculate the number of tokens that can be retained for each message
         tokens_per_message = max_seq_length // len(message_log)
         for chat_message in message_log:
-            # 保留每个message的token，但不超过限制
+            # retain each message's token, but not exceed the limit
             chat_message["token_ids"] = chat_message["token_ids"][:tokens_per_message]
-        # 重新计算长度
+        # recalculate the length
         length = sum(len(m["token_ids"]) for m in message_log)
         loss_multiplier = 0.0
 
@@ -161,114 +161,73 @@ def setup_data(
 ]:
     print("\n▶ Setting up data...")
     
-    # 添加详细的路径调试信息
     prompt_file = data_config["prompt_file"]
     system_prompt_file = data_config["system_prompt_file"]
-    
-    # 转换为绝对路径，确保文件能被找到
+
     import os
     current_dir = os.path.dirname(os.path.abspath(__file__))
     
-    # 修复路径拼接逻辑 - 使用更简单的方法
     if not os.path.isabs(prompt_file):
-        # 假设prompt_file是相对于examples/prompts目录的
         prompt_file = os.path.join(current_dir, "prompts", prompt_file)
     
-    # 只有当system_prompt_file不为None时才进行路径拼接
     if system_prompt_file is not None and not os.path.isabs(system_prompt_file):
         system_prompt_file = os.path.join(current_dir, "prompts", system_prompt_file)
     
-    print(f"  📁 Prompt file path: {prompt_file}")
-    print(f"  📁 System prompt file path: {system_prompt_file}")
-    
-    # 检查文件是否存在
 
     if os.path.exists(prompt_file):
-        print(f"  ✅ Prompt file exists: {prompt_file}")
         try:
             with open(prompt_file, 'r', encoding='utf-8') as f:
                 prompt_content = f.read()
-                print(f"  📝 Prompt file content (first 100 chars): {prompt_content[:100]}...")
-                print(f"  📝 Prompt file length: {len(prompt_content)} characters")
         except Exception as e:
-            print(f"  ❌ Failed to read prompt file: {e}")
             import traceback
             traceback.print_exc()
     else:
-        print(f"  ❌ Prompt file does not exist: {prompt_file}")
-        # 尝试列出目录内容
         prompt_dir = os.path.dirname(prompt_file)
         if os.path.exists(prompt_dir):
             try:
                 files = os.listdir(prompt_dir)
             except Exception as e:
-                print(f"  ❌ Failed to list directory: {e}")
+                raise ValueError(f"Failed to list directory: {e}")
         else:
-            print(f"  ❌ Prompt directory does not exist: {prompt_dir}")
+            raise ValueError(f"Prompt directory does not exist: {prompt_dir}")
+
     
-    if system_prompt_file is not None and os.path.exists(system_prompt_file):
-        print(f"  ✅ System prompt file exists: {system_prompt_file}")
-    elif system_prompt_file is None:
-        print(f"  ℹ️ System prompt file is None (not configured)")
-    else:
-        print(f"  ❌ System prompt file does not exist: {system_prompt_file}")
-    
-    # 创建TaskDataSpec，并处理可能的异常
+    # Create TaskDataSpec
     try:
         math_task_spec = TaskDataSpec(
             task_name="math",
             prompt_file=prompt_file,
             system_prompt_file=system_prompt_file,
         )
-        print(f"  ✅ TaskDataSpec created successfully")
-    except Exception as e:
-        print(f"  ❌ Failed to create TaskDataSpec: {e}")
-        print(f"  🔍 Attempting to create TaskDataSpec with manual prompt loading...")
-        
-        # 手动加载prompt文件
+    except Exception as e: 
+        # manually load prompt file
         try:
             with open(prompt_file, 'r', encoding='utf-8') as f:
                 manual_prompt = f.read()
-                print(f"  📝 Manually loaded prompt (first 100 chars): {manual_prompt[:100]}...")
-                
-                # 创建TaskDataSpec，不指定prompt_file，避免自动加载
                 math_task_spec = TaskDataSpec(
                     task_name="math",
                     prompt_file=None,
                     system_prompt_file=None,
                 )
-                # 手动设置prompt
+                # manually set prompt
                 math_task_spec.prompt = manual_prompt
                 math_task_spec.system_prompt = None
-                print(f"  ✅ TaskDataSpec created with manual prompt loading")
                 
         except Exception as e2:
-            print(f"  ❌ Manual prompt loading also failed: {e2}")
             import traceback
             traceback.print_exc()
             raise RuntimeError(f"Failed to create TaskDataSpec: {e}")
-    
-    # 检查TaskDataSpec是否正确初始化
 
-    if math_task_spec.prompt is not None:
-        print(f"  📝 TaskDataSpec.prompt (first 100 chars): {math_task_spec.prompt[:100]}...")
-        print(f"  📝 TaskDataSpec.prompt length: {len(math_task_spec.prompt)} characters")
-    else:
-        print(f"  ⚠️ TaskDataSpec.prompt is None - this will cause errors!")
-        print(f"  🔍 Attempting to manually load prompt file...")
+    if math_task_spec.prompt is None:
         try:
             with open(prompt_file, 'r', encoding='utf-8') as f:
                 manual_prompt = f.read()
-                print(f"  📝 Manually loaded prompt (first 100 chars): {manual_prompt[:100]}...")
-                # 手动设置prompt
                 math_task_spec.prompt = manual_prompt
-                print(f"  ✅ Manually set TaskDataSpec.prompt")
         except Exception as e:
-            print(f"  ❌ Failed to manually load prompt: {e}")
             import traceback
             traceback.print_exc()
 
-    # Load dataset using nemo rl datasets (优先使用GRPO的成熟实现)
+    # Load dataset using nemo rl datasets
     if data_config["dataset_name"] == "OpenMathInstruct-2":
         print("Loading nvidia/OpenMathInstruct2Dataset for training and validation")
         data: Any = OpenMathInstruct2Dataset(seed=seed)
@@ -288,8 +247,6 @@ def setup_data(
     task_data_processors: dict[str, tuple[TaskDataSpec, TaskDataProcessFnCallable]] = {}
     task_data_processors["math"] = (math_task_spec, hf_data_processor)
     
-    # 添加调试信息，验证TaskDataSpec的状态
-
     math_env = MathEnvironment.options(  # type: ignore # it's wrapped with ray.remote
         runtime_env={
             "py_executable": get_actor_python_env(
@@ -334,33 +291,18 @@ def main() -> None:
         )
 
     config = load_config(args.config)
-    print(f"Loaded configuration from: {args.config}")
-
     if overrides:
-        print(f"Overrides: {overrides}")
         config = parse_hydra_overrides(config, overrides)
 
     config: MasterConfig = OmegaConf.to_container(config, resolve=True)
-    print("Applied CLI overrides")
-
-    # Print config
-    print("Final config:")
-    pprint.pprint(config)
 
     # Get the next experiment directory with incremented ID
     config["logger"]["log_dir"] = get_next_experiment_dir(config["logger"]["log_dir"])
-    print(f"📊 Using log directory: {config['logger']['log_dir']}")
-    if config["checkpointing"]["enabled"]:
-        print(
-            f"📊 Using checkpoint directory: {config['checkpointing']['checkpoint_dir']}"
-        )
 
     init_ray()
 
-    # setup tokenizer
     tokenizer = get_tokenizer(config["policy"]["tokenizer"])
     
-    # 确保生成配置正确（与GRPO保持一致）
     if config["policy"]["generation"] is not None:
         from nemo_rl.models.generation import configure_generation_config
         config["policy"]["generation"] = configure_generation_config(
@@ -375,14 +317,15 @@ def main() -> None:
         val_dataset,
         task_to_env,
         val_task_to_env,
-    ) = setup_data(tokenizer, config["data"], config["env"], 42)  # 使用固定种子
+    ) = setup_data(tokenizer, config["data"], config["env"], 42)  
 
     (
         student_policy,
+        teacher_policy,
         student_generation,
         dataloader,
         val_dataloader,
-        tokenizer,  # 添加tokenizer
+        tokenizer,  # add tokenizer
         loss_fn,
         logger,
         checkpointer,
@@ -392,10 +335,11 @@ def main() -> None:
 
     distillation_train(
         student_policy,
+        teacher_policy,
         student_generation,
         dataloader,
         val_dataloader,
-        tokenizer,  # 传递tokenizer参数
+        tokenizer,  # pass tokenizer parameter
         loss_fn,
         logger,
         checkpointer,

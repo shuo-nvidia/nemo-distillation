@@ -3,7 +3,7 @@ policy:
   model_name: "Qwen/Qwen2.5-1.5B-Instruct" 
   tokenizer:
     name: ${policy.model_name} ## specify if you'd like to use a tokenizer different from the model's default
-  train_global_batch_size: 64  
+  train_global_batch_size: 128  
   train_micro_batch_size: 1  
   generation_batch_size: 32 
   logprob_batch_size: 2  
@@ -67,7 +67,7 @@ policy:
 
   generation:
     backend: "vllm"  
-    max_new_tokens: ${policy.max_total_sequence_length}  # 引用policy配置
+    max_new_tokens: ${policy.max_total_sequence_length}  # refer to policy config
     temperature: 1.0
     top_p: 0.95
     top_k: 50
@@ -80,7 +80,7 @@ policy:
       tensor_parallel_size: 1
       pipeline_parallel_size: 1
       gpu_memory_utilization: 0.5  
-      max_model_len: ${policy.max_total_sequence_length}  # 与policy保持一致
+      max_model_len: ${policy.max_total_sequence_length}  # refer to policy config
       enforce_eager: False
 
       distributed_executor_backend: null
@@ -96,21 +96,20 @@ policy:
 
 loss_fn:
   temperature: 1.0
-  alpha: 0.5 
-  beta: 0.5   
+  alpha: 0.5  
+  kl_type: "mixed"     # forward, reverse, mixed
+  mixed_kl_weight: 0.5 # when kl_type is "mixed", this is the weight of the forward KL
 
-# 蒸馏算法配置
+# distillation algorithm config
 distillation:
   teacher_model_path: "Qwen/Qwen2.5-3B-Instruct"
   
-  # 蒸馏策略参数
-  kl_type: "mixed"  # KL散度类型：forward, reverse, mixed
-  mixed_kl_weight: 0.5  # 混合KL时的权重系数（当kl_type为"mixed"时使用）
-  generate_strategy:  # 学生生成参数
-    max_length: ${policy.max_total_sequence_length}  # 与policy配置保持一致
-    max_new_tokens: 128  # 限制生成token数量，避免序列过长（这个值应该小于max_total_sequence_length）
-    temperature: 1.0  # 采样温度（控制生成随机性，默认为0.1）
-    decoding_method: "top_p"  # 解码方式（如greedy、top_k）
+  # distillation policy parameters
+  generate_strategy:  # student generation parameters
+    max_length: ${policy.max_total_sequence_length}  # refer to policy config
+    max_new_tokens: 128  # limit the number of generated tokens, avoid sequence too long (this value should be less than max_total_sequence_length)
+    temperature: 1.0  # sampling temperature (control the randomness of generation, default is 1.0)
+    decoding_method: "top_p"  # decoding method (e.g. greedy, top_k)
   
 
   max_steps: 2000

@@ -786,20 +786,18 @@ class DistillationLossDataDict(TypedDict):
     input_lengths: torch.Tensor
     token_mask: torch.Tensor
     sample_mask: torch.Tensor
-    student_logits: NotRequired[torch.Tensor]
-    teacher_logits: NotRequired[torch.Tensor]
+    teacher_logprobs: NotRequired[torch.Tensor]
 
 
 class DistillationLossFn(LossFunction):
-    """蒸馏损失函数 - 简化版本"""
+    """Distillation loss function"""
     
     def __init__(self, config: DistillationLossConfig):
         self.config = config
         self.temperature = config.get("temperature", 1.0)
         self.alpha = config.get("alpha", 0.5)
-        self.beta = config.get("beta", 0.5)
-        self.loss_type = LossType.TOKEN_LEVEL  # 设置损失类型
-    
+        self.kl_type = config.get("kl_type", "forward")  
+        self.mixed_kl_weight = config.get("mixed_kl_weight", 0.5)
     def __call__(
         self,
         next_token_logits: torch.Tensor,
@@ -811,107 +809,67 @@ class DistillationLossFn(LossFunction):
         context_parallel_group: Optional[torch.distributed.ProcessGroup] = None,
     ) -> tuple[torch.Tensor, dict[str, Any]]:
         """Compute distillation loss between teacher and student logits."""
-        
+    
         input_ids = data.get("input_ids")
-        if input_ids is None:
-            raise ValueError("input_ids not found in data")
-
-        student_logits = next_token_logits
-
-        teacher_logits = None
-        
-        if "teacher_logits" in data:
-            teacher_logits = data["teacher_logits"]
-       
-
-        if teacher_logits is None:
-            print(f"  ❌ [DistillationLossFn] Missing teacher_logits!")
-            raise ValueError("Missing teacher_logits in data")
-        
-        if student_logits is None:
-            print(f"  ❌ [DistillationLossFn] Missing student_logits!")
-            raise ValueError("Missing student_logits in data")
-
-        
-        # 获取input_ids来推断正确的形状
-        input_ids = data.get("input_ids")
-        if input_ids is None:
-            raise ValueError("input_ids not found in data")
-        
         expected_batch_size = input_ids.shape[0]
         expected_seq_len = input_ids.shape[1]
-        
-               
 
-        kl_type = data.get("kl_type", "mixed")  # 默认使用forward KL
-        lambda_ = data.get("lambda_", 0.5)        # 默认lambda为0.5
+        student_logits = next_token_logits
+        teacher_logprobs = None
         
+        if "teacher_logprobs" in data:
+            teacher_logprobs = data["teacher_logprobs"]
+
 
         temperature = getattr(self, 'temperature', 1.0)
         if temperature != 1.0:
             student_logits = student_logits / temperature
-            teacher_logits = teacher_logits / temperature
 
-        student_probs = torch.softmax(student_logits, dim=-1)
-        teacher_probs = torch.softmax(teacher_logits, dim=-1)
+        student_logprobs = torch.softmax(student_logits, dim=-1)
         
-        # 避免log(0)
+        # avoid log(0)
         epsilon = 1e-8
-        student_probs = torch.clamp(student_probs, epsilon, 1.0 - epsilon)
-        teacher_probs = torch.clamp(teacher_probs, epsilon, 1.0 - epsilon)
-        
-        # 根据kl_type计算不同的KL divergence
+        student_logprobs = torch.clamp(student_logprobs, epsilon, 1.0 - epsilon)
+        teacher_logprobs = torch.clamp(teacher_logprobs, epsilon, 1.0 - epsilon)
+
+        kl_type = getattr(self, 'kl_type', "forward")  
+        # according to kl_type, compute different KL divergence
         if kl_type == "forward":
-            # KL(student || teacher) - 学生模型学习教师模型的分布
-            kl_loss = torch.sum(teacher_probs * torch.log(teacher_probs / student_probs), dim=-1)
+            # KL(teacher || student)
+            kl_loss = torch.exp(teacher_logprobs - student_logprobs).sum(-1)
         elif kl_type == "reverse":
-            # KL(teacher || student) - 教师模型学习学生模型的分布
-            kl_loss = torch.sum(student_probs * torch.log(student_probs / teacher_probs), dim=-1)
+            # KL(student || teacher)
+            kl_loss = torch.exp(student_logprobs - teacher_logprobs).sum(-1)
         elif kl_type == "mixed":
-            # 混合KL: 使用可配置的权重
-            mixed_weight = data.get("mixed_kl_weight", 0.5)  # 从配置中获取权重
-    
-            kl_forward = torch.sum(teacher_probs * torch.log(teacher_probs / student_probs), dim=-1)
-            kl_reverse = torch.sum(student_probs * torch.log(student_probs / teacher_probs), dim=-1)
+            # mixed KL
+            kl_forward = torch.exp(teacher_logprobs - student_logprobs).sum(-1)
+            kl_reverse = torch.exp(student_logprobs - teacher_logprobs).sum(-1)
+            mixed_weight = getattr(self, 'mixed_kl_weight', 0.5)
             kl_loss = mixed_weight * kl_forward + (1.0 - mixed_weight) * kl_reverse
         else:
-            # 默认使用forward KL
-            kl_loss = torch.sum(teacher_probs * torch.log(teacher_probs / student_probs), dim=-1)
-            print(f"  ⚠️ [DistillationLossFn] Unknown kl_type: {kl_type}, using forward KL")
+            # forward KL by default
+            kl_loss = torch.exp(teacher_logprobs - student_logprobs).sum(-1)
         
-        # 应用mask（如果有的话）
+        # apply mask
         if "token_mask" in data:
             token_mask = data["token_mask"]
+            sample_mask = data["sample_mask"]
             if len(token_mask.shape) == 2 and token_mask.shape[1] == expected_seq_len:
-                # 应用token mask
-                kl_loss = kl_loss * token_mask
-                #print(f"  🔍 [DistillationLossFn] Applied token mask")
+                # Combine token_mask and sample_mask: mask = token_mask * sample_mask.unsqueeze(-1)
+                mask = token_mask * sample_mask.unsqueeze(-1)
+                kl_loss = kl_loss * mask
         
-        # 计算平均损失
         kl_loss = torch.mean(kl_loss)
         
-        # 应用alpha权重
         alpha = getattr(self, 'alpha', 1.0)
         total_loss = alpha * kl_loss
         
-        # print(f"  ✅✅✅ [DistillationLossFn] KL loss computed successfully: {kl_loss.item():.6f}")
-        
-        # 准备metrics - 只保留数值类型，确保框架兼容性
         metrics = {
             "loss": kl_loss.item(),
             "temperature": temperature,
             "alpha": alpha,
             "kl_type_numeric": 1.0 if kl_type == "forward" else (2.0 if kl_type == "reverse" else 3.0),
-            "mixed_kl_weight": data.get("mixed_kl_weight", 0.5),
             "num_valid_samples": expected_batch_size,
-            # 只保留数值类型的形状信息，确保metrics累加正常工作
-            "student_batch_size": student_logits.shape[0],
-            "student_seq_len": student_logits.shape[1],
-            "student_vocab_size": student_logits.shape[2],
-            "teacher_batch_size": teacher_logits.shape[0],
-            "teacher_seq_len": teacher_logits.shape[1],
-            "teacher_vocab_size": teacher_logits.shape[2],
-            # 添加生成长度相关指标
             "avg_sequence_length": expected_seq_len,
             "total_tokens": expected_batch_size * expected_seq_len,
             "kl_loss_per_token": kl_loss.item() / (expected_batch_size * expected_seq_len),
