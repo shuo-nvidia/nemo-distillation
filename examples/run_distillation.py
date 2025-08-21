@@ -345,6 +345,7 @@ def main() -> None:
         checkpointer,
         distillation_state,
         master_config,
+        task_to_env,  # Add the missing task_to_env parameter
     )
 
 
