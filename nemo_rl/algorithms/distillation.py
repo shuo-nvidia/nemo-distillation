@@ -933,7 +933,8 @@ def distillation_train(
                         
                         # Store teacher_logprobs in train_data
                         train_data["teacher_logprobs"] = teacher_logprobs
-               
+                    teacher_policy.offload_after_refit()
+                    
                 distillation_safe_data = {}
                 
                 for key, value in train_data.items():
