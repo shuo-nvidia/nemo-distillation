@@ -48,6 +48,7 @@ from nemo_rl.utils.logger import (
 )
 from nemo_rl.utils.timer import Timer
 from nemo_rl.experience.rollouts import run_multi_turn_rollout
+from nemo_rl.environments.interfaces import EnvironmentInterface
 
 # ===============================================================================
 # Configuration
@@ -431,6 +432,7 @@ def validate(
     decoding_method: str,
     step: int,
     master_config: MasterConfig,
+    task_to_env: dict[str, EnvironmentInterface],  # Add environment parameter
 ) -> dict[str, Any]:
     """Run validation on the validation dataset for distillation"""
     if val_dataloader is None:
@@ -450,7 +452,7 @@ def validate(
                         policy_generation=student_generation,
                         input_batch=val_batch,
                         tokenizer=tokenizer,
-                        task_to_env={},  
+                        task_to_env=task_to_env,  # use the provided environment parameter
                         max_seq_len=master_config["policy"]["max_total_sequence_length"],  
                         max_rollout_turns=1, 
                         greedy=(decoding_method == "greedy"), 
@@ -541,6 +543,7 @@ def distillation_train(
     checkpointer: CheckpointManager,
     distillation_save_state: DistillationSaveState,
     master_config: MasterConfig,
+    task_to_env: dict[str, EnvironmentInterface],  # Add environment parameter like GRPO
 ) -> None:
     """Distillation training main function"""
     
@@ -618,33 +621,14 @@ def distillation_train(
                 if student_generation is not None:
                     from nemo_rl.models.generation.interfaces import GenerationDatumSpec
                     
-                    # create Ray remote environment instance
-                    from nemo_rl.environments.math_environment import MathEnvironment
-                    from nemo_rl.distributed.ray_actor_environment_registry import get_actor_python_env
-                    
-                    # get environment configuration from master_config
-                    env_configs = master_config.get("env", {})
-                    if "math" not in env_configs:
-                        # if no environment configuration, use default configuration
-                        env_configs["math"] = {"num_workers": 8}
-                        print(f"  ⚠️ No math environment config found, using default: {env_configs['math']}")
-                    
-                    distillation_env = MathEnvironment.options(
-                        runtime_env={
-                            "py_executable": get_actor_python_env(
-                                "nemo_rl.environments.math_environment.MathEnvironment"
-                            ),
-                            "env_vars": dict(os.environ),
-                        }
-                    ).remote(env_configs["math"])
-                    distillation_task_env = {"math": distillation_env}
+                    # Use the provided task_to_env instead of hardcoding environment creation
+                    # The environment should be created and configured at the caller level
                     
                     num_generations_per_prompt = master_config["distillation"]["num_generations_per_prompt"]
                     
                     repeated_batch: BatchedDataDict[DatumSpec] = batch.repeat_interleave(
                         num_repeats=num_generations_per_prompt
                     )
-                    
                     
                     max_seq_len = master_config["policy"]["max_total_sequence_length"]
                     max_new_tokens = distillation_config["generate_strategy"]["max_new_tokens"]
@@ -690,7 +674,7 @@ def distillation_train(
                             policy_generation=student_generation,
                             input_batch=repeated_batch,  # use repeated batch
                             tokenizer=tokenizer,
-                            task_to_env=distillation_task_env,  # pass Ray actor virtual environment
+                            task_to_env=task_to_env,  # use the provided environment parameter
                             max_seq_len=max_seq_len,  # directly use policy's max_total_sequence_length
                             max_rollout_turns=1,  # distillation only needs single-turn generation
                             greedy=(decoding_method == "greedy"),  # determine if greedy based on decoding_method
@@ -889,10 +873,8 @@ def distillation_train(
                     # teacher model forward propagation (need to be implemented separately because of different model sizes)
                     with torch.no_grad():
                         teacher_policy.prepare_for_lp_inference()
-                        teacher_policy.offload_before_refit()
-                        teacher_policy.offload_after_refit()
                         teacher_logprobs=teacher_policy.get_logprobs(train_data)["logprobs"]
-                        
+                        teacher_policy.offload_before_refit()
                         # Store teacher_logprobs in train_data
                         train_data["teacher_logprobs"] = teacher_logprobs
              
@@ -935,7 +917,8 @@ def distillation_train(
                     except Exception as e:
                         raise
 
-         
+                teacher_policy.offload_after_refit()        
+                
                 # build training metrics
                 metrics = {}
                 
@@ -1059,6 +1042,7 @@ def distillation_train(
                             decoding_method,
                             step + 1,
                             master_config,
+                            task_to_env,
                         )
                         
                         if val_metrics:
