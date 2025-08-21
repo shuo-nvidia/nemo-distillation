@@ -604,19 +604,17 @@ def distillation_train(
                         raise
                 
                 # check if refit is needed
-                if student_generation is not None:
                     
-                    if NEED_REFIT or STUDENT_GENERATION_STALE:
-                        generation_config = {
-                            'temperature': temperature,
-                            'decoding_method': decoding_method,
-                            'max_length': max_length,
-                        }
-                        refit_student_generation(student_policy, student_generation, colocated_inference, generation_config=generation_config, master_config=master_config)
-                        STUDENT_GENERATION_STALE = False
-                        NEED_REFIT = False
-                    else:
-                        student_generation.prepare_for_generation()
+                if NEED_REFIT or STUDENT_GENERATION_STALE:
+                    generation_config = {
+                        'temperature': temperature,
+                        'decoding_method': decoding_method,
+                        'max_length': max_length,
+                    }
+                    refit_student_generation(student_policy, student_generation, colocated_inference, generation_config=generation_config, master_config=master_config)
+                    STUDENT_GENERATION_STALE = False
+                else:
+                    student_generation.prepare_for_generation()
 
                 if student_generation is not None:
                     from nemo_rl.models.generation.interfaces import GenerationDatumSpec
