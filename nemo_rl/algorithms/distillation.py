@@ -507,11 +507,11 @@ def validate(
                             val_student_logits = student_policy.get_logprobs(val_batch)["logprobs"]
                             val_teacher_logprobs = teacher_policy.get_logprobs(val_batch)["logprobs"]
 
-                        val_data = {
+                        val_data_dict = {
                             "input_ids": val_input_ids,
                             "teacher_logprobs": val_teacher_logprobs,
                         }
-                        
+                        val_data = BatchedDataDict[DistillationLossDataDict](val_data_dict)
                         val_loss, val_metrics = loss_fn(
                             val_student_logits,
                             val_data,
@@ -566,12 +566,6 @@ def validate(
                 batch_size = len(val_batch) if hasattr(val_batch, '__len__') else 1
                 total_losses.append(batch_loss)
                 total_samples += batch_size
-
-        # print validation results
-        print("\n📊 Validation Results:")
-        print(f"    • Average loss: {avg_loss:.4f}")
-        print(f"    • Samples processed: {total_samples}")
-
     return val_metrics
 
 
