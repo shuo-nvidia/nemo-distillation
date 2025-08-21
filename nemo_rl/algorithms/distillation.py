@@ -929,12 +929,13 @@ def distillation_train(
                     # teacher model forward propagation (need to be implemented separately because of different model sizes)
                     with torch.no_grad():
                         teacher_policy.prepare_for_lp_inference()
+                        teacher_policy.offload_before_refit()
                         teacher_logprobs=teacher_policy.get_logprobs(train_data)["logprobs"]
-                        
+                        teacher_policy.offload_after_refit()
                         # Store teacher_logprobs in train_data
                         train_data["teacher_logprobs"] = teacher_logprobs
-                    teacher_policy.offload_after_refit()
-                    
+             
+
                 distillation_safe_data = {}
                 
                 for key, value in train_data.items():
