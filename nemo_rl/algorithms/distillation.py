@@ -975,30 +975,76 @@ def distillation_train(
                     with torch.no_grad():
                         teacher_policy.prepare_for_lp_inference()
                         teacher_logprobs=teacher_policy.get_logprobs(train_data)["logprobs"]
-                        # Ensure teacher_logprobs is on the same device as the model
+                        
+                        # Ensure teacher_logprobs is on the same device as the teacher policy
                         if hasattr(teacher_policy, 'device'):
                             teacher_logprobs = teacher_logprobs.to(teacher_policy.device)
+                        
+                        # Additional safety check: ensure teacher_logprobs is a valid tensor
+                        if not isinstance(teacher_logprobs, torch.Tensor):
+                            raise ValueError(f"teacher_logprobs must be a tensor, got {type(teacher_logprobs)}")
+                        
+                        # Store teacher_logprobs in train_data
                         train_data["teacher_logprobs"] = teacher_logprobs
                
                 # Move all data to the same device as the student policy
                 # This ensures device consistency and prevents CUDA-CPU device mismatch errors
+                target_device = None
+                
+                # Try different ways to get the device from student_policy
                 if hasattr(student_policy, 'device'):
                     target_device = student_policy.device
-                else:
-                    # Fallback to CUDA if device is not explicitly set
-                    target_device = "cuda"
+                elif hasattr(student_policy, 'get_device'):
+                    target_device = student_policy.get_device()
+                elif hasattr(student_policy, 'model') and hasattr(student_policy.model, 'device'):
+                    target_device = student_policy.model.device
+                elif hasattr(student_policy, 'parameters'):
+                    # Get device from the first parameter
+                    for param in student_policy.parameters():
+                        if param.device.type != 'cpu':
+                            target_device = param.device
+                            break
                 
-                # Move train_data to the target device
+                # Fallback to CUDA if device is not explicitly set
+                if target_device is None:
+                    target_device = "cuda"
+                    print(f"⚠️ [Warning] Could not detect device from student_policy, using fallback: {target_device}")
+                else:
+                    print(f"✅ [Info] Detected target device: {target_device}")
+                
+                # Convert target_device to string if it's a torch.device object
+                if isinstance(target_device, torch.device):
+                    target_device = str(target_device)
+                
+                # Use BatchedDataDict's built-in .to() method for proper device movement
+                # This ensures all tensors in the batch are moved to the same device
+                train_data = train_data.to(target_device)
+                
+                # Additional safety check: ensure teacher_logprobs is also on the correct device
+                if "teacher_logprobs" in train_data:
+                    if isinstance(train_data["teacher_logprobs"], torch.Tensor):
+                        if train_data["teacher_logprobs"].device != torch.device(target_device):
+                            train_data["teacher_logprobs"] = train_data["teacher_logprobs"].to(target_device)
+                
+                # Debug logging: check device consistency of all tensors
+                print(f"🔍 [Debug] Target device: {target_device}")
                 for key, value in train_data.items():
                     if isinstance(value, torch.Tensor):
-                        train_data[key] = value.to(target_device)
-                    elif hasattr(value, 'to') and callable(getattr(value, 'to', None)):
-                        # Handle other objects that might have a .to() method
-                        try:
-                            train_data[key] = value.to(target_device)
-                        except:
-                            # If .to() fails, keep the original value
-                            pass
+                        print(f"🔍 [Debug] {key}: device={value.device}, dtype={value.dtype}, shape={value.shape}")
+                    else:
+                        print(f"🔍 [Debug] {key}: type={type(value)}")
+                
+                # Final device consistency check before training
+                device_mismatch = False
+                for key, value in train_data.items():
+                    if isinstance(value, torch.Tensor):
+                        if value.device != torch.device(target_device):
+                            print(f"⚠️ [Warning] Device mismatch for {key}: {value.device} != {target_device}")
+                            device_mismatch = True
+                
+                if device_mismatch:
+                    print("⚠️ [Warning] Device mismatches detected! Attempting to fix...")
+                    train_data = train_data.to(target_device)
            
                 with timer.time("policy_training"):
                     try:
