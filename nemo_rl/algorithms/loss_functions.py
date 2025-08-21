@@ -835,14 +835,14 @@ class DistillationLossFn(LossFunction):
         # according to kl_type, compute different KL divergence
         if kl_type == "forward":
             # KL(teacher || student)
-            kl_loss = (torch.exp(teacher_logprobs)*torch.exp(teacher_logprobs - student_logprobs)).sum(-1)
+            kl_loss = (torch.exp(teacher_logprobs)*(teacher_logprobs - student_logprobs)).sum(-1)
         elif kl_type == "reverse":
             # KL(student || teacher)
-            kl_loss = (torch.exp(student_logprobs)*torch.exp(student_logprobs - teacher_logprobs)).sum(-1)
+            kl_loss = (torch.exp(student_logprobs)*(student_logprobs - teacher_logprobs)).sum(-1)
         elif kl_type == "mixed":
             # mixed KL
-            kl_forward = (torch.exp(teacher_logprobs)*torch.exp(teacher_logprobs - student_logprobs)).sum(-1)
-            kl_reverse = (torch.exp(student_logprobs)*torch.exp(student_logprobs - teacher_logprobs)).sum(-1)
+            kl_forward = (torch.exp(teacher_logprobs)*(teacher_logprobs - student_logprobs)).sum(-1)
+            kl_reverse = (torch.exp(student_logprobs)*(student_logprobs - teacher_logprobs)).sum(-1)
             mixed_weight = getattr(self, 'mixed_kl_weight', 0.5)
             kl_loss = mixed_weight * kl_forward + (1.0 - mixed_weight) * kl_reverse
         else:
