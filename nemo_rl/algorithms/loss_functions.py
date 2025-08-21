@@ -825,7 +825,12 @@ class DistillationLossFn(LossFunction):
         if temperature != 1.0:
             student_logits = student_logits / temperature
 
-        student_logprobs = torch.softmax(student_logits, dim=-1)
+
+        student_logprobs = torch.log_softmax(student_logits, dim=-1)
+        # Gather logprobs at the actual token positions
+        target_tokens = data["input_ids"]  # Shape: (batch_size, sequence_length)
+        student_logprobs = student_logprobs.gather(dim=-1, index=target_tokens.unsqueeze(-1)).squeeze(-1)
+
         
         # avoid log(0)
         epsilon = 1e-8
