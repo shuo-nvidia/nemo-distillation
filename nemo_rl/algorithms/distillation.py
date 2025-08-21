@@ -512,7 +512,7 @@ def validate(
                             "teacher_logprobs": val_teacher_logprobs,
                         }
                         
-                        val_loss, val_loss_metrics = loss_fn(
+                        val_loss, val_metrics = loss_fn(
                             val_student_logits,
                             val_data,
                             torch.ones(val_batch_size, dtype=torch.bool),
@@ -566,41 +566,6 @@ def validate(
                 batch_size = len(val_batch) if hasattr(val_batch, '__len__') else 1
                 total_losses.append(batch_loss)
                 total_samples += batch_size
-
-        if total_losses:
-            avg_loss = sum(total_losses) / len(total_losses)
-        else:
-            avg_loss = 0.0
-
-        val_metrics = {
-            "val_loss": avg_loss,
-            "val_samples": total_samples,
-            "val_avg_sequence_length": 0,  # placeholder, will be calculated below
-            "val_max_sequence_length": 0,
-            "val_min_sequence_length": 0,
-        }
-        
-        
-        # calculate sequence length metrics
-        try:
-            if val_dataloader is not None:
-                sequence_lengths = []
-                for val_batch in val_dataloader:
-                    if hasattr(val_batch, 'get') and val_batch.get('input_ids') is not None:
-                        input_ids = val_batch['input_ids']
-                        if torch.is_tensor(input_ids):
-                            lengths = (input_ids != 0).sum(dim=1)
-                            sequence_lengths.extend(lengths.tolist())
-                
-                if sequence_lengths:
-                    sequence_lengths = torch.tensor(sequence_lengths)
-                    val_metrics.update({
-                        "val_avg_sequence_length": sequence_lengths.float().mean().item(),
-                        "val_max_sequence_length": sequence_lengths.max().item(),
-                        "val_min_sequence_length": sequence_lengths.min().item(),
-                    })
-        except Exception as e:
-            raise e
 
         # print validation results
         print("\n📊 Validation Results:")
@@ -1141,22 +1106,40 @@ def distillation_train(
                         )
                         
                         if val_metrics:
-                            if "val_loss" in val_metrics:
-                                logger.log_metrics({"eval/loss": val_metrics["val_loss"]}, step + 1)
-                                distillation_save_state["val_loss"] = val_metrics["val_loss"]
-                                print(f"✅[Validation] Step {step + 1}: Val Loss = {val_metrics['val_loss']:.6f}")
+                            eval_metrics = {}
                             
                             for k, v in val_metrics.items():
-                                if k != "val_loss" and isinstance(v, (int, float)):
-                                    logger.log_metrics({f"eval/{k}": v}, step + 1)
+                                if len(v) > 0 and k != "loss":
+                                    if isinstance(v, (list, tuple)):
+                                        # if list/tuple, calculate average
+                                        if len(v) > 0:
+                                            if isinstance(v[0], (int, float)):
+                                                eval_metrics[k] = sum(v) / len(v)
+                                            elif hasattr(v[0], 'numpy'):
+                                                eval_metrics[k] = sum(x.numpy() for x in v) / len(v)
+                                            else:
+                                                # skip unprocessable type
+                                                continue
+                                        else:
+                                            # empty list, skip
+                                            continue
+                                    elif isinstance(v, (int, float)):
+                                        # use value directly
+                                        eval_metrics[k] = v
+                                    elif hasattr(v, 'numpy'):
+                                        # convert to numpy
+                                        eval_metrics[k] = v.numpy()
+                                    elif hasattr(v, 'item'):
+                                        # convert to Python scalar
+                                        eval_metrics[k] = v.item()
+                                    else:
+                                        # skip unprocessable type
+                                        continue
+                        if logger is not None:
+                            logger.log_metrics(eval_metrics, step, prefix="eval")
+                        if "loss" in eval_metrics:
+                            print(f"✅[Validation] Step {step + 1}: Val Loss = {loss:.6f}")
                             
-                            if "val_avg_sequence_length" in val_metrics:
-                                logger.log_metrics({
-                                    "eval/avg_sequence_length": val_metrics["val_avg_sequence_length"],
-                                    "eval/max_sequence_length": val_metrics.get("val_max_sequence_length", 0),
-                                    "eval/min_sequence_length": val_metrics.get("val_min_sequence_length", 0),
-                                }, step + 1)
-                        
                         if student_generation is not None:
                             student_generation.finish_generation()
                     except Exception as e:

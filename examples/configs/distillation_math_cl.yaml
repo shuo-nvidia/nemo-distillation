@@ -96,7 +96,7 @@ policy:
 
 loss_fn:
   temperature: 1.0
-  alpha: 0.5  
+  alpha: 1.0  
   kl_type: "mixed"     # forward, reverse, mixed
   mixed_kl_weight: 0.5 # when kl_type is "mixed", this is the weight of the forward KL
 
@@ -111,9 +111,8 @@ distillation:
     temperature: 1.0  # sampling temperature (control the randomness of generation, default is 1.0)
     decoding_method: "top_p"  # decoding method (e.g. greedy, top_k)
   
-
-  max_steps: 2000
-  eval_steps: 50
+  max_steps: 1000
+  eval_steps: 20
   save_steps: 500
   logging_steps: 10
   num_prompts_per_step: 16  
