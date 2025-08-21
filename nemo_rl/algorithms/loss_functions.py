@@ -819,11 +819,11 @@ class DistillationLossFn(LossFunction):
         
         teacher_logprobs = data["teacher_logprobs"]
 
-
+        '''
         temperature = getattr(self, 'temperature', 1.0)
         if temperature != 1.0:
             student_logits = student_logits / temperature
-
+        '''
 
         student_logprobs = torch.log_softmax(student_logits, dim=-1)
         # Gather logprobs at the actual token positions
@@ -831,24 +831,18 @@ class DistillationLossFn(LossFunction):
 
         student_logprobs = student_logprobs.gather(dim=-1, index=target_tokens.unsqueeze(-1)).squeeze(-1)
 
-        
-        # avoid log(0)
-        epsilon = 1e-8
-        student_logprobs = torch.clamp(student_logprobs, epsilon, 1.0 - epsilon)
-        teacher_logprobs = torch.clamp(teacher_logprobs, epsilon, 1.0 - epsilon)
-
         kl_type = getattr(self, 'kl_type', "forward")  
         # according to kl_type, compute different KL divergence
         if kl_type == "forward":
             # KL(teacher || student)
-            kl_loss = torch.exp(teacher_logprobs - student_logprobs).sum(-1)
+            kl_loss = (torch.exp(teacher_logprobs)*torch.exp(teacher_logprobs - student_logprobs)).sum(-1)
         elif kl_type == "reverse":
             # KL(student || teacher)
-            kl_loss = torch.exp(student_logprobs - teacher_logprobs).sum(-1)
+            kl_loss = (torch.exp(student_logprobs)*torch.exp(student_logprobs - teacher_logprobs)).sum(-1)
         elif kl_type == "mixed":
             # mixed KL
-            kl_forward = torch.exp(teacher_logprobs - student_logprobs).sum(-1)
-            kl_reverse = torch.exp(student_logprobs - teacher_logprobs).sum(-1)
+            kl_forward = (torch.exp(teacher_logprobs)*torch.exp(teacher_logprobs - student_logprobs)).sum(-1)
+            kl_reverse = (torch.exp(stud_logprobs)*torch.exp(student_logprobs - teacher_logprobs)).sum(-1)
             mixed_weight = getattr(self, 'mixed_kl_weight', 0.5)
             kl_loss = mixed_weight * kl_forward + (1.0 - mixed_weight) * kl_reverse
         else:
@@ -871,7 +865,6 @@ class DistillationLossFn(LossFunction):
         
         metrics = {
             "loss": kl_loss.item(),
-            "temperature": temperature,
             "alpha": alpha,
             "kl_type_numeric": 1.0 if kl_type == "forward" else (2.0 if kl_type == "reverse" else 3.0),
             "num_valid_samples": expected_batch_size,

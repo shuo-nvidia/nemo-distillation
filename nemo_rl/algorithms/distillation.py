@@ -975,7 +975,7 @@ def distillation_train(
                         # Store teacher_logprobs in train_data
                         train_data["teacher_logprobs"] = teacher_logprobs
                
-                    distillation_safe_data = {}
+                distillation_safe_data = {}
                 
                 for key, value in train_data.items():
                     if key in ["teacher_logprobs"]:
@@ -984,16 +984,13 @@ def distillation_train(
                             batch_size, seq_len, vocab_size = value.shape
                             flattened_logits = value.view(batch_size * seq_len, vocab_size)
                             
-                            # 创建一个特殊的key，worker不会检查
                             safe_key = f"distillation_{key}_flattened"
                             distillation_safe_data[safe_key] = flattened_logits
                             
-                            # 存储原始形状信息
                             distillation_safe_data[f"{safe_key}_shape"] = torch.tensor([batch_size, seq_len, vocab_size])
                         else:
                             distillation_safe_data[key] = value
                     else:
-                        # 对于其他字段，直接复制
                         distillation_safe_data[key] = value
 
                 with timer.time("training_prep"):
@@ -1001,7 +998,6 @@ def distillation_train(
                     student_policy.prepare_for_training()  
                     STUDENT_GENERATION_STALE = True  # *** MARK AS STALE AFTER TRAINING ***
                 
-                # 只保留worker需要的标准张量字段
                 worker_required_fields = ["input_ids", "input_lengths", "token_mask", "sample_mask", "teacher_logprobs"]
                 clean_worker_data = {}
                 
@@ -1009,21 +1005,12 @@ def distillation_train(
                     if field in train_data:
                         if torch.is_tensor(train_data[field]):
                             clean_worker_data[field] = train_data[field]
-                        else:
-                            continue
-                    else:
-                        continue
                 
-                # 验证清理后的数据
-                if len(clean_worker_data) != len(worker_required_fields):
-                    raise ValueError("Missing required fields for worker")
-                
-                # 创建干净的BatchedDataDict用于worker
                 worker_train_data = BatchedDataDict[DistillationLossDataDict](clean_worker_data)
 
                 with timer.time("policy_training"):
                     try:
-                        train_results = student_policy.train(worker_worker_train_data, loss_fn)
+                        train_results = student_policy.train(worker_train_data, loss_fn)
                     except Exception as e:
                         raise
 
