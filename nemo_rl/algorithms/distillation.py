@@ -272,7 +272,7 @@ def setup(
         optimizer_path = None
 
     student_policy = Policy(
-        prefix_name="student",
+        name_prefix="student",
         cluster=train_cluster,  
         config=policy_config,
         tokenizer=tokenizer,
@@ -294,7 +294,7 @@ def setup(
     teacher_config["model_name"] = distillation_config["teacher_model_path"]
 
     teacher_policy = Policy(
-        prefix_name="teacher",
+        name_prefix="teacher",
         cluster=train_cluster,  
         config=teacher_config,
         tokenizer=tokenizer,
