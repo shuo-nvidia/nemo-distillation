@@ -460,7 +460,13 @@ def validate(
                     
                     # loss calculation
                     try:
-                        val_input_ids = val_batch["input_ids"]
+                        # 从message_log中提取input_ids，就像训练阶段一样
+                        message_logs = val_batch["message_log"]
+                        batched_flat, input_lengths = batched_message_log_to_flat_message(
+                            message_logs,
+                            pad_value_dict={"token_ids": tokenizer.pad_token_id},
+                        )
+                        val_input_ids = batched_flat["token_ids"]
                         val_batch_size = val_input_ids.shape[0]
                         
                         with torch.no_grad():
@@ -495,7 +501,13 @@ def validate(
                 # 如果使用megatron后端，直接使用policy
                 try:
                     # 实现megatron的验证逻辑
-                    val_input_ids = val_batch["input_ids"]
+                    # 从message_log中提取input_ids，就像训练阶段一样
+                    message_logs = val_batch["message_log"]
+                    batched_flat, input_lengths = batched_message_log_to_flat_message(
+                        message_logs,
+                        pad_value_dict={"token_ids": tokenizer.pad_token_id},
+                    )
+                    val_input_ids = batched_flat["token_ids"]
                     val_batch_size = val_input_ids.shape[0]
                     
                     # 获取学生模型在验证数据上的logits

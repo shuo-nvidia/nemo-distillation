@@ -112,7 +112,7 @@ distillation:
     decoding_method: "top_p"  # decoding method (e.g. greedy, top_k)
   
   max_steps: 1000
-  eval_steps: 20
+  eval_steps: 10
   save_steps: 500
   logging_steps: 10
   num_prompts_per_step: 8  
