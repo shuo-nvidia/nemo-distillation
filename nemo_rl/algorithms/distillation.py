@@ -475,11 +475,19 @@ def validate(
                             "input_lengths": input_lengths,
                         })
                         
+                        # 🔑 关键修复：将数据移到CPU，减少GPU内存占用
+                        val_batch_for_logprobs.to("cpu")
+                        
                         with torch.no_grad():
                             student_policy.prepare_for_lp_inference()
                             teacher_policy.prepare_for_lp_inference()
-                            val_student_logits = student_policy.get_logprobs(val_batch_for_logprobs)["logprobs"]
+                            
+                            # 先获取teacher logprobs，然后立即卸载
                             val_teacher_logprobs = teacher_policy.get_logprobs(val_batch_for_logprobs)["logprobs"]
+                            teacher_policy.offload_before_refit()  # 🔑 关键：立即卸载teacher模型
+                            
+                            # 再获取student logprobs
+                            val_student_logits = student_policy.get_logprobs(val_batch_for_logprobs)["logprobs"]
 
                         val_data_dict = {
                             "input_ids": val_input_ids,
@@ -493,8 +501,17 @@ def validate(
                             torch.ones_like(val_input_ids, dtype=torch.bool),
                         )
                         
-                        batch_loss = val_loss.item()             
+                        batch_loss = val_loss.item()
+                        
+                        # 🔑 关键：在验证完成后卸载teacher模型
+                        teacher_policy.offload_after_refit()
+                        
                     except Exception as e:
+                        # 确保在异常情况下也卸载teacher模型
+                        try:
+                            teacher_policy.offload_after_refit()
+                        except:
+                            pass
                         raise e
                     
                     batch_size = len(val_batch) if hasattr(val_batch, '__len__') else 1
@@ -515,6 +532,9 @@ def validate(
                     )
                     val_input_ids = batched_flat["token_ids"]
                     val_batch_size = val_input_ids.shape[0]
+                    
+                    # 🔑 关键修复：将数据移到CPU，减少GPU内存占用
+                    val_input_ids = val_input_ids.to("cpu")
                     
                     # 获取学生模型在验证数据上的logits
                     with torch.no_grad():
