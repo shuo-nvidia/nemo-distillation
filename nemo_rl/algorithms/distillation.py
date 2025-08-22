@@ -469,11 +469,17 @@ def validate(
                         val_input_ids = batched_flat["token_ids"]
                         val_batch_size = val_input_ids.shape[0]
                         
+                        # 创建包含input_ids和input_lengths的验证批次数据
+                        val_batch_for_logprobs = BatchedDataDict({
+                            "input_ids": val_input_ids,
+                            "input_lengths": input_lengths,
+                        })
+                        
                         with torch.no_grad():
                             student_policy.prepare_for_lp_inference()
                             teacher_policy.prepare_for_lp_inference()
-                            val_student_logits = student_policy.get_logprobs(val_batch)["logprobs"]
-                            val_teacher_logprobs = teacher_policy.get_logprobs(val_batch)["logprobs"]
+                            val_student_logits = student_policy.get_logprobs(val_batch_for_logprobs)["logprobs"]
+                            val_teacher_logprobs = teacher_policy.get_logprobs(val_batch_for_logprobs)["logprobs"]
 
                         val_data_dict = {
                             "input_ids": val_input_ids,
@@ -1055,9 +1061,10 @@ def distillation_train(
                             task_to_env,
                         )
                         
+                        # 初始化eval_metrics
+                        eval_metrics = {}
+                        
                         if val_metrics:
-                            eval_metrics = {}
-                            
                             for k, v in val_metrics.items():
                                 if len(v) > 0 and k != "loss":
                                     if isinstance(v, (list, tuple)):
@@ -1085,7 +1092,8 @@ def distillation_train(
                                     else:
                                         # skip unprocessable type
                                         continue
-                        if logger is not None:
+                        
+                        if logger is not None and eval_metrics:
                             logger.log_metrics(eval_metrics, step, prefix="eval")
                         if "loss" in eval_metrics:
                             print(f"✅[Validation] Step {step + 1}: Val Loss = {loss:.6f}")
@@ -1102,7 +1110,7 @@ def distillation_train(
                         logger.log_metrics({
                             "step": step,
                             "consumed_samples": distillation_save_state["consumed_samples"],
-                        })
+                        }, step)
                     except Exception as e:
                         import traceback
                         traceback.print_exc()
